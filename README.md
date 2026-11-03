@@ -6,6 +6,7 @@
 
 <p align="center">
   <a href="./plugins/dsh-ui-suite/"><img src="./plugins/dsh-ui-suite/icon.png" width="76" alt="界面套件"></a>
+  <a href="./plugins/dsh-ui-skill-explorer/"><img src="./plugins/dsh-ui-skill-explorer/icon.png" width="76" alt="技能中心"></a>
   <a href="./plugins/dsh-ui-quota/"><img src="./plugins/dsh-ui-quota/icon.png" width="76" alt="更好的用户菜单"></a>
   <a href="./plugins/dsh-sidebar-memo/"><img src="./plugins/dsh-sidebar-memo/icon.png" width="76" alt="备忘录"></a>
   <a href="./plugins/dsh-user-memory/"><img src="./plugins/dsh-user-memory/icon.png" width="76" alt="用户记忆"></a>
@@ -20,7 +21,7 @@
 |---|---|---|---|---|
 | <img src="./plugins/dsh-ui-suite/icon.png" height="32" alt=""> | 基础层 | `dsh-ui-suite` | 2.1.0 | `--dshui-*` 设计令牌层与十四个界面组件 |
 | | 应用层 | `dsh-ui-session-delete` | 2.1.0 | 会话行菜单的「删除会话」，按血缘删除磁盘数据 |
-| | 应用层 | `dsh-ui-skill-explorer` | 2.2.0 | 技能中心面板：两列卡片、分组浏览、启用与删除 |
+| <img src="./plugins/dsh-ui-skill-explorer/icon.png" height="32" alt=""> | 应用层 | `dsh-ui-skill-explorer` | 2.2.0 | 技能中心面板：两列卡片、分组浏览、启用与删除 |
 | <img src="./plugins/dsh-ui-quota/icon.png" height="32" alt=""> | 应用层 | `dsh-ui-quota` | 2.2.0 | 左下角用户菜单与设置页「用量」 |
 | <img src="./plugins/dsh-sidebar-memo/icon.png" height="32" alt=""> | 应用层 | `dsh-sidebar-memo` | 0.1.0 | 右侧边栏的清单、目标、计划与日记 |
 | <img src="./plugins/dsh-user-memory/icon.png" height="32" alt=""> | 应用层 | `dsh-user-memory` | 0.1.0 | 单 Agent 长期记忆与侧栏记忆面板 |
