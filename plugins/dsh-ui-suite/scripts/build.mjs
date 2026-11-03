@@ -25,7 +25,13 @@ const SUITE = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const PLUGINS = resolve(SUITE, '..')
 const RUNTIME = join(PLUGINS, 'dsh-ui-copy', 'src', 'core', 'runtime.js')
 
-/** Package -> component key. The browser bundle is built for these only. */
+/**
+ * Package -> component key. The browser bundle is built for these only.
+ *
+ * Entries are not required to be suite members: `dsh-ui-quota`,
+ * `-session-delete` and `-skill-explorer` install on their own, and are built
+ * here because this is the workspace's single build entry.
+ */
 const JS_PACKAGES = {
   'dsh-ui-copy': 'copy',
   'dsh-ui-identity': 'identity',

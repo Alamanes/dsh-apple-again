@@ -1,14 +1,19 @@
 {
   "name": "dsh-ui-skill-explorer",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
-  "description": "按来源浏览、启用、新建、删除技能的技能中心面板。（dsh-ui-suite 组件）",
+  "description": "按来源浏览、启用、新建、删除技能的技能中心面板。独立插件，不依赖界面套件。",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Alamanes/dsh-apple-again.git",
+    "directory": "plugins/dsh-ui-skill-explorer"
+  },
   "keywords": [
     "dsh",
     "dsh-plugin",
     "deepseek-harness",
-    "ui-suite",
-    "skill-explorer"
+    "skill-explorer",
+    "skill-center"
   ],
   "type": "module",
   "main": "lib/index.js",
@@ -27,6 +32,7 @@
   "files": [
     "lib",
     "locale",
+    "cordis.patch.yml",
     "README.md"
   ],
   "engines": {
@@ -34,6 +40,9 @@
     "dsh": ">=0.2.0-rc.2 <0.3.0-0"
   },
   "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "immediately": true,

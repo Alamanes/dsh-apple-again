@@ -1,8 +1,8 @@
 # dsh-ui-suite
 
-界面套件的 bundle：一行 entry 插入十六个可单独停用的组件包，共享一套 `--dshui-*` 设计令牌。
+界面套件的 bundle：一行 entry 插入十四个可单独停用的组件包，共享一套 `--dshui-*` 设计令牌。
 
-`lib/index.js` 不做事，只导出空模块；`dsh.bundle.patch` 指向 `cordis.patch.yml`，其中每个组件一行 insert。插件页把这一层显示成「界面套件」，下面是十六个可以单独开关的组件。
+`lib/index.js` 不做事，只导出空模块；`dsh.bundle.patch` 指向 `cordis.patch.yml`，其中每个组件一行 insert。插件页把这一层显示成「界面套件」，下面是十四个可以单独开关的组件。
 
 ## 组件
 
@@ -14,12 +14,10 @@
 | `dsh-ui-menu` | 权限模式、模型、Dock 标签与右键菜单的开合动画 |
 | `dsh-ui-sidebar` | 侧栏「新会话」按钮的样式 |
 | `dsh-ui-identity` | 侧栏左下角的名字与头像 |
-| `dsh-ui-session-delete` | 会话删除与确认弹窗 |
 | `dsh-ui-status-phrases` | 回合状态行的渐变短语 |
 | `dsh-ui-restart` | 标题栏的重启按钮与 `restart_dsh` 工具 |
 | `dsh-ui-effort-slider` | 推理强度滑块 |
 | `dsh-ui-whale` | 对话区的粒子鲸鱼壁纸 |
-| `dsh-ui-skill-explorer` | 技能中心面板 |
 | `dsh-ui-theme` | 主题预设与设置页「主题」分区 |
 | `dsh-ui-chat-fold` | 思考行与过程组的开合 |
 | `dsh-ui-chat-motion` | 聊天区动效与读数 |
@@ -45,6 +43,8 @@ node scripts/build.mjs --check         # 只检查是否过期
 
 | 组件 | 时间 | 去向 |
 | --- | --- | --- |
+| `dsh-ui-session-delete` | 2.1 | 独立成包，自带 `dsh.bundle.patch`，装进 bundles 即自动挂载 |
+| `dsh-ui-skill-explorer` | 2.1 | 独立成包，自带 `dsh.bundle.patch`，装进 bundles 即自动挂载 |
 | `dsh-ui-quota` | 2.1 | 独立成包，现名「更好的用户菜单」，需与本套件一起安装 |
 | `dsh-ui-foot-panels` | 本次 | 功能并入「更好的用户菜单」：插件、使用统计、技能中心的入口收进左下角菜单 |
 | `dsh-ui-peak-valley` | 本次 | 功能并入「更好的用户菜单」：峰谷时段与倒计时移入「剩余用量」抽屉 |

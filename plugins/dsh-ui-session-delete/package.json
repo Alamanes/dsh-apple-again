@@ -1,13 +1,17 @@
 {
   "name": "dsh-ui-session-delete",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
-  "description": "会话行「…」菜单里的「删除会话」与确认弹窗，按血缘彻底删除磁盘数据。（dsh-ui-suite 组件）",
+  "description": "会话行「…」菜单里的「删除会话」与确认弹窗，按血缘彻底删除磁盘数据。独立插件，不依赖界面套件。",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Alamanes/dsh-apple-again.git",
+    "directory": "plugins/dsh-ui-session-delete"
+  },
   "keywords": [
     "dsh",
     "dsh-plugin",
     "deepseek-harness",
-    "ui-suite",
     "session-delete"
   ],
   "type": "module",
@@ -27,6 +31,7 @@
   "files": [
     "lib",
     "locale",
+    "cordis.patch.yml",
     "README.md"
   ],
   "engines": {
@@ -34,6 +39,9 @@
     "dsh": ">=0.2.0-rc.2 <0.3.0-0"
   },
   "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "immediately": true,

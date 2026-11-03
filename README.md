@@ -18,7 +18,9 @@
 
 | 图标 | 层 | 包 | 版本 | 职责 |
 |---|---|---|---|---|
-| <img src="./plugins/dsh-ui-suite/icon.png" height="32" alt=""> | 基础层 | `dsh-ui-suite` | 2.0.1 | `--dshui-*` 设计令牌层与十六个界面组件 |
+| <img src="./plugins/dsh-ui-suite/icon.png" height="32" alt=""> | 基础层 | `dsh-ui-suite` | 2.1.0 | `--dshui-*` 设计令牌层与十四个界面组件 |
+| | 应用层 | `dsh-ui-session-delete` | 2.1.0 | 会话行菜单的「删除会话」，按血缘删除磁盘数据 |
+| | 应用层 | `dsh-ui-skill-explorer` | 2.1.0 | 技能中心面板：浏览、启用、新建、删除技能 |
 | <img src="./plugins/dsh-ui-quota/icon.png" height="32" alt=""> | 应用层 | `dsh-ui-quota` | 2.1.0 | 左下角用户菜单与设置页「用量」 |
 | <img src="./plugins/dsh-sidebar-memo/icon.png" height="32" alt=""> | 应用层 | `dsh-sidebar-memo` | 0.1.0 | 右侧边栏的清单、目标、计划与日记 |
 | <img src="./plugins/dsh-user-memory/icon.png" height="32" alt=""> | 应用层 | `dsh-user-memory` | 0.1.0 | 单 Agent 长期记忆与侧栏记忆面板 |
@@ -32,14 +34,17 @@
 | `dsh-sidebar-memo` | 无清单级依赖 | 自带样式；侧栏区域与基础层统一 |
 | `dsh-user-memory` | 无清单级依赖 | 自带样式；侧栏区域与基础层统一 |
 | `dsh-plugin-forge` | 无 | 独立运行 |
+| `dsh-ui-session-delete` | 无清单级依赖 | 自带样式与宿主半边 |
+| `dsh-ui-skill-explorer` | 无清单级依赖 | 自带样式与宿主半边 |
 
-缺失基础层时，`dsh-ui-quota` 的菜单退回宿主样式，其余包不受影响。
+缺失基础层时，`dsh-ui-quota` 的菜单退回宿主样式，其余包不受影响。`dsh-ui-session-delete`
+与 `dsh-ui-skill-explorer` 不依赖基础层，可单独安装。
 
 ## 界面套件
 
-`dsh-ui-suite` 自身只包含 `dsh.bundle.patch` 与组件依赖清单，实际界面由十六个组件包提供。
+`dsh-ui-suite` 自身只包含 `dsh.bundle.patch` 与组件依赖清单，实际界面由十四个组件包提供。
 每个组件自带运行时、令牌层与宿主半边，单独安装同样可用；挂入套件后，它们在插件页呈现为
-一张「界面套件」卡片下可分别停用的十六行。
+一张「界面套件」卡片下可分别停用的十四行。
 
 | 组件包 | 版本 | 职责 |
 |---|---|---|
@@ -49,12 +54,10 @@
 | `dsh-ui-menu` | 2.0.0 | 权限、模型、Dock、右键菜单的开合动画 |
 | `dsh-ui-sidebar` | 2.0.0 | 侧栏「新会话」按钮降噪 |
 | `dsh-ui-identity` | 2.0.0 | 左下角账号芯片的昵称与头像 |
-| `dsh-ui-session-delete` | 2.0.0 | 会话行菜单的「删除会话」 |
 | `dsh-ui-status-phrases` | 2.0.0 | 状态行短语轮换、打字机与流光 |
 | `dsh-ui-restart` | 2.0.0 | 标题栏「彻底重启」按钮与 `restart_dsh` 工具 |
 | `dsh-ui-effort-slider` | 2.0.0 | 推理强度滑块 |
 | `dsh-ui-whale` | 2.0.0 | 粒子鲸鱼壁纸与半透明界面 |
-| `dsh-ui-skill-explorer` | 2.0.0 | 技能中心面板 |
 | `dsh-ui-theme` | 2.0.0 | 设置页「主题」分区，十四套配色预设 |
 | `dsh-ui-chat-fold` | 2.0.0 | 思考行与过程组的自动开合、卷帘门折叠过渡 |
 | `dsh-ui-chat-motion` | 2.0.0 | 插入符位移、缓存命中率转轮、上下文占用饼 |
@@ -87,6 +90,8 @@
     "profile": {
       "bundles": [
         "dsh-ui-suite",
+        "dsh-ui-session-delete",
+        "dsh-ui-skill-explorer",
         "dsh-ui-quota",
         "dsh-sidebar-memo",
         "dsh-user-memory",
@@ -97,7 +102,7 @@
 }
 ```
 
-`dsh-ui-suite` 必须以本地绝对路径的 `file:` 说明符安装。它的十六个组件以 `file:../<组件>`
+`dsh-ui-suite` 必须以本地绝对路径的 `file:` 说明符安装。它的十四个组件以 `file:../<组件>`
 指向同仓库同级目录，`github:#path:` 只检出套件单个子目录，无法解析同级组件。其余包可直接
 使用 `#path:` 子目录说明符，该说明符同时作为更新源。
 
@@ -105,7 +110,7 @@
 
 ### 单独安装
 
-十六个界面组件可脱离套件单独安装，各自提供完整的运行时与令牌层：
+十四个界面组件可脱离套件单独安装，各自提供完整的运行时与令牌层：
 
 ```json
 "dsh-ui-theme": "github:Alamanes/dsh-apple-again#path:plugins/dsh-ui-theme"
@@ -132,7 +137,7 @@ pnpm 按 commit 缓存 Git 依赖。仓库有新提交时执行 `pnpm update <�
 
 ## 停用与卸载
 
-基础层的十六个组件可在插件页逐个停用，影响范围限于对应界面。停用 `dsh-ui-quota` 会同时收回
+基础层的十四个组件可在插件页逐个停用，影响范围限于对应界面。停用 `dsh-ui-quota` 会同时收回
 侧栏面板入口与设置页用量视图。
 
 卸载时从 `dsh.profile.bundles` 中移除对应条目并删除 `dependencies` 项，再执行
