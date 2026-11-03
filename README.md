@@ -140,4 +140,19 @@ pnpm 按 commit 缓存 Git 依赖。仓库有新提交时执行 `pnpm update <�
 
 ## 许可
 
-各包均为 MIT。随包保留的第三方实现及其出处见对应目录的 README。
+自产部分均为 MIT。以下构件源自第三方，版权归原作者，在本仓库内按原协议收录，未改变其许可条件。
+
+| 包 | 第三方构件 | 出处 | 协议 |
+|---|---|---|---|
+| `dsh-plugin-forge` | `modules/debugging` 的运行时自检工具组与技能 | `dsh-plugin-debugging` 0.7.1（zlZayn） | MIT，Copyright © 2026 Zayn |
+| `dsh-ui-status-phrases` | 状态行替换逻辑、打字机锁宽与渐变 CSS | npm `dsh-status-rotator`（01Virex）的收窄复刻 | MIT |
+| `dsh-ui-quota` | 用量与额度的数据模型 | Jovan1666/commandcode-usage，原发布包 `dsh-commandcode-quota` | MIT |
+| `dsh-ui-whale` | 粒子鲸鱼壁纸 | HeShen-1/deepseek-whale-wallpaper，npm `dsh-plugin-harness-whale@0.2.0` | MIT |
+| `dsh-ui-effort-slider` | 推理强度滑块 | bakabaicai/DSH-Codex-reasoning-effort-slider | MIT，Copyright © 2026 Nachoneko_miao |
+
+许可证全文随包保留：
+
+- `plugins/dsh-sidebar-memo/LICENSE` —— 本包 MIT 全文
+- `plugins/dsh-plugin-forge/modules/debugging/LICENSE` —— 调试模块的 MIT 全文，版权声明为 Zayn
+
+其余包在各自目录的 `package.json` 中以 `license: MIT` 声明。
