@@ -140,17 +140,35 @@ pnpm 按 commit 缓存 Git 依赖。仓库有新提交时执行 `pnpm update <�
 
 ## 许可
 
-自产部分均为 MIT。以下构件源自第三方，版权归原作者，在本仓库内按原协议收录，未改变其许可条件。
+各包自产部分均为 MIT。以下实现源自第三方，版权归原作者，按原协议收录，未改变其许可条件。
 
-| 包 | 第三方构件 | 出处 | 协议 |
+### 移植自第三方的实现
+
+| 包 | 上游 | 协议 | 移植范围 |
 |---|---|---|---|
-| `dsh-plugin-forge` | `modules/debugging` 的运行时自检工具组与技能 | `dsh-plugin-debugging` 0.7.1（zlZayn） | MIT，Copyright © 2026 Zayn |
-| `dsh-ui-status-phrases` | 状态行替换逻辑、打字机锁宽与渐变 CSS | npm `dsh-status-rotator`（01Virex）的收窄复刻 | MIT |
-| `dsh-ui-quota` | 用量与额度的数据模型 | Jovan1666/commandcode-usage，原发布包 `dsh-commandcode-quota` | MIT |
-| `dsh-ui-whale` | 粒子鲸鱼壁纸 | HeShen-1/deepseek-whale-wallpaper，npm `dsh-plugin-harness-whale@0.2.0` | MIT |
-| `dsh-ui-effort-slider` | 推理强度滑块 | bakabaicai/DSH-Codex-reasoning-effort-slider | MIT，Copyright © 2026 Nachoneko_miao |
+| `dsh-ui-skill-explorer` | `@linxin666/dsh-client-ui-skill-explorer@0.4.14`（zhu1090093659） | BSD-3-Clause | 技能中心的宿主与浏览器半边、SKILL.md 的解析与改写、技能的启用与增删；包内指向 `dsh-market.com` 的遥测端点随上游保留 |
+| `dsh-ui-whale` | `dsh-plugin-harness-whale@0.2.0`（HeShen-1/deepseek-whale-wallpaper） | MIT | 粒子鲸鱼壁纸的 WebGL2 点云、Canvas2D 回退与活动感知调光 |
+| `dsh-ui-status-phrases` | `dsh-status-rotator@0.38.0`（01Virex） | MIT | 短语的洗牌袋抽取、打字机锁宽与渐变样式 |
+| `dsh-ui-effort-slider` | `dsh-codex-reasoning-effort-slider`（bakabaicai，作者 Nachoneko_miao） | MIT | Codex 风格的推理强度弹层、Fast 开关与滑轨 |
+| `dsh-ui-quota` | `dsh-commandcode-quota@0.3.2`（Jovan1666/commandcode-usage） | MIT | Command Code 额度报告的数据模型与取数路由 |
+| `dsh-plugin-forge` | `dsh-plugin-debugging@0.7.1`（zlZayn） | MIT | `modules/debugging` 的运行时自检工具组与技能 |
 
-许可证全文随包保留：
+### 外部数据与服务
+
+| 包 | 来源 | 性质 |
+|---|---|---|
+| `dsh-ui-quota` | Command Code API（`api.commandcode.ai`） | 账号额度与用量，以用户自己的 API key 调用 |
+| `dsh-ui-quota` | `NateScarlet/holiday-cn`（MIT，Copyright © 2019 NateScarlet） | 节假日判定，数据经 jsDelivr 与 raw.githubusercontent.com 拉取 |
+| `dsh-ui-skill-explorer` | `dsh-market.com/api/telemetry/event` | 上游内置的匿名使用统计，随移植保留 |
+
+### 设计参考
+
+- `dsh-ui-effort-slider` 的交互形态取自 Codex 桌面版的推理强度弹层。
+- `dsh-user-memory` 的记忆模型参考 DS Bot 的记忆系统，去掉多 Bot、群聊与权限层。
+
+### 许可证全文
+
+各上游的许可证原文集中在 [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md)。包内另带的许可证文件：
 
 - `plugins/dsh-sidebar-memo/LICENSE` —— 本包 MIT 全文
 - `plugins/dsh-plugin-forge/modules/debugging/LICENSE` —— 调试模块的 MIT 全文，版权声明为 Zayn
