@@ -531,13 +531,11 @@ function dshuiComponent_skill_explorer(rt) {
   var PanelController = class {
     deps;
     panelOpen = false;
-    activeTab = "skills";
     editing;
     listeners = new Set();
     /** Cached so getSnapshot stays referentially stable between changes. */
     snapshot = {
       panelOpen: false,
-      activeTab: "skills",
       editing: void 0
     };
     constructor(deps = {}) {
@@ -587,28 +585,19 @@ function dshuiComponent_skill_explorer(rt) {
       this.panelOpen = open;
       this.commit();
     }
-    /** Switch tabs without touching the editor target. */
-    setActiveTab(tab) {
-      if (this.activeTab === tab) return;
-      this.activeTab = tab;
-      this.commit();
-    }
-    /** Open the editor for one row; the edit tab appears while it is set. */
+    /** Open the editor for one row; the edit sheet renders while it is set. */
     openEditor(skill) {
       this.editing = skill;
-      this.activeTab = "edit";
       this.commit();
     }
-    /** Leave the editor; the list remounts and refetches the saved copy. */
+    /** Leave the editor; the list refetches the saved copy. */
     closeEditor() {
       this.editing = void 0;
-      this.activeTab = "skills";
       this.commit();
     }
     commit() {
       this.snapshot = {
         panelOpen: this.panelOpen,
-        activeTab: this.activeTab,
         editing: this.editing
       };
       for (const fn of [...this.listeners]) fn();
@@ -624,12 +613,18 @@ function dshuiComponent_skill_explorer(rt) {
    * skill-explorer surface copy: zh is the key source, en mirrors every key.
    */
   const zh = {
-    "entry.label": "技能中心",
-    "entry.tooltip": "技能中心：浏览与管理已加载的 skill",
-    "panel.title": "技能中心",
+    "entry.label": "技能",
+    "entry.tooltip": "技能：浏览与管理已加载的技能",
+    "panel.title": "技能",
     "tab.list": "技能",
     "tab.create": "创建",
     "tab.edit": "编辑技能",
+    "group.installed": "已安装",
+    "group.system": "系统",
+    "detail.source": "来源",
+    "detail.workspace": "工作区",
+    "detail.provider": "提供方",
+    "detail.when": "适用",
     "group.bundled": "系统内置",
     "group.project-dsh": "项目技能（.dsh/skills）",
     "group.project-agents": "项目技能（.agents/skills）",
@@ -701,12 +696,18 @@ function dshuiComponent_skill_explorer(rt) {
     "refresh": "刷新"
   };
   const en = {
-    "entry.label": "Skill Center",
-    "entry.tooltip": "Skill center: browse and manage loaded skills",
-    "panel.title": "Skill Center",
+    "entry.label": "Skills",
+    "entry.tooltip": "Skills: browse and manage loaded skills",
+    "panel.title": "Skills",
     "tab.list": "Skills",
     "tab.create": "Create",
     "tab.edit": "Edit skill",
+    "group.installed": "Installed",
+    "group.system": "System",
+    "detail.source": "Source",
+    "detail.workspace": "Workspace",
+    "detail.provider": "Provider",
+    "detail.when": "When",
     "group.bundled": "System bundled",
     "group.project-dsh": "Project skills (.dsh/skills)",
     "group.project-agents": "Project skills (.agents/skills)",
@@ -818,253 +819,233 @@ function dshuiComponent_skill_explorer(rt) {
 
     .ptK59a_panel {
       background: var(--dshui-surface-base);
+      color: var(--dshui-text-primary);
+      font-family: var(--dshui-font-family);
+      width: 100%;
+      max-width: 1080px;
+      margin: 0 auto;
       min-width: 0;
       height: 100%;
       min-height: 0;
-      color: var(--dshui-text-primary);
-      font-family: var(--dshui-font-family);
       flex-direction: column;
-      gap: var(--dshui-space-4);
-      padding: var(--dshui-space-5) var(--dshui-space-6) var(--dshui-space-6);
       display: flex;
+      overflow-y: auto;
     }
 
-    .ptK59a_panelHeader { flex: none; align-items: center; gap: var(--dshui-space-4); display: flex }
+    .ptK59a_panelHeader { flex: none; align-items: center; padding: var(--dshui-space-7) var(--dshui-space-7) 0; display: flex }
 
     .ptK59a_panelTitle {
       color: var(--dshui-text-primary);
-      white-space: nowrap;
-      flex: 1;
       margin: 0;
-      font-size: var(--dshui-text-size-lg);
+      font-size: 20px;
+      line-height: 1.3;
+      letter-spacing: -.01em;
       font-weight: var(--dshui-weight-semibold);
     }
 
-    .ptK59a_tabBar { border-bottom: 1px solid var(--dshui-border-1); flex: none; gap: var(--dshui-space-1); display: flex }
+    .ptK59a_panelContent { flex-direction: column; flex: 1; min-height: 0; padding: 0 var(--dshui-space-7) var(--dshui-space-7); display: flex }
+    .ptK59a_fillBody { flex-direction: column; flex: 1; display: flex }
 
-    .ptK59a_tab {
-      color: var(--dshui-text-secondary);
-      cursor: pointer;
-      white-space: nowrap;
-      background: 0 0;
-      border: none;
-      border-bottom: 2px solid transparent;
-      border-radius: var(--dshui-radius-sm) var(--dshui-radius-sm) 0 0;
-      padding: var(--dshui-space-3) var(--dshui-space-5);
-      font-size: var(--dshui-text-size-md);
-    }
-
-    .ptK59a_tab:hover { color: var(--dshui-text-primary); background: var(--dshui-surface-hover) }
-
-    .ptK59a_tab[data-active] {
-      color: var(--dshui-text-primary);
-      border-bottom-color: var(--dshui-business);
-      font-weight: var(--dshui-weight-semibold);
-    }
-
-    .ptK59a_panelContent { flex-direction: column; flex: 1; min-height: 0; display: flex; overflow: hidden }
-    .ptK59a_fillBody { flex-direction: column; flex: 1; gap: var(--dshui-space-4); min-height: 0; display: flex; overflow: hidden }
-    .ptK59a_tabBody { flex-direction: column; flex: 1; gap: var(--dshui-space-4); min-height: 0; display: flex; overflow-y: auto }
-    .ptK59a_toolbar { flex-wrap: wrap; flex: none; align-items: center; gap: var(--dshui-space-4); display: flex }
+    .ptK59a_toolbar { flex: none; align-items: center; gap: var(--dshui-space-3); margin: var(--dshui-space-5) 0 var(--dshui-space-7); display: flex }
+    .ptK59a_searchWrap { flex: 1; min-width: 0; align-items: center; display: flex; position: relative }
+    .ptK59a_searchIcon { color: var(--dshui-text-tertiary); pointer-events: none; position: absolute; left: 16px; top: 50%; transform: translateY(-50%) }
 
     .ptK59a_search {
-      min-width: 120px;
+      width: 100%;
+      height: 44px;
       color: var(--dshui-text-primary);
-      background: var(--dshui-surface-2);
+      background: var(--dshui-surface-base);
       border: 1px solid var(--dshui-border-2);
-      border-radius: var(--dshui-radius-sm);
+      border-radius: 999px;
       outline: none;
-      flex: 0 260px;
-      padding: var(--dshui-space-3) var(--dshui-space-4);
-      font-size: var(--dshui-text-size-md);
+      padding: 0 18px 0 44px;
+      font-size: var(--dshui-text-size-sm);
     }
 
     .ptK59a_search::placeholder { color: var(--dshui-text-tertiary) }
+    .ptK59a_search:focus { border-color: var(--dshui-text-tertiary) }
 
-    .ptK59a_select {
+    .ptK59a_iconButton {
+      color: var(--dshui-text-secondary);
+      background: 0 0;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      flex: none;
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+    }
+
+    .ptK59a_iconButton:hover:not(:disabled) { background: var(--dshui-surface-hover); color: var(--dshui-text-primary) }
+    .ptK59a_iconButton:disabled { opacity: .45; cursor: default }
+    .ptK59a_menuWrap { position: relative; flex: none; display: flex }
+
+    .ptK59a_menu {
+      background: var(--dshui-surface-base);
+      border: 1px solid var(--dshui-border-1);
+      border-radius: 12px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, .14);
+      flex-direction: column;
+      gap: 2px;
+      min-width: 240px;
+      padding: 6px;
+      display: flex;
+      position: absolute;
+      right: 0;
+      top: calc(100% + 8px);
+      z-index: 30;
+    }
+
+    .ptK59a_menuLabel { color: var(--dshui-text-tertiary); letter-spacing: .05em; padding: 8px 10px 4px; font-size: 11px }
+
+    .ptK59a_menuItem {
       color: var(--dshui-text-primary);
+      background: 0 0;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      padding: 8px 10px;
+      text-align: left;
+      font-size: var(--dshui-text-size-sm);
+    }
+
+    .ptK59a_menuItem:hover { background: var(--dshui-surface-hover) }
+    .ptK59a_menuItem[data-active] { background: var(--dshui-surface-hover); font-weight: var(--dshui-weight-semibold) }
+
+    .ptK59a_section { flex-direction: column; margin-bottom: var(--dshui-space-7); display: flex }
+
+    .ptK59a_groupTitle {
+      color: var(--dshui-text-tertiary);
+      margin: 0 0 var(--dshui-space-3);
+      font-size: 13px;
+      font-weight: var(--dshui-weight-medium);
+    }
+
+    .ptK59a_list { align-items: flex-start; display: flex; gap: var(--dshui-space-6) }
+    .ptK59a_column { flex-direction: column; gap: 2px; flex: 1; min-width: 0; display: flex }
+
+    .ptK59a_skillRow { align-items: center; border-radius: 12px; cursor: pointer; flex-wrap: wrap; column-gap: 14px; row-gap: 0; padding: 10px 12px; display: flex }
+    .ptK59a_skillRow:hover { background: var(--dshui-surface-hover) }
+    .ptK59a_skillRow[data-open] { background: var(--dshui-surface-hover) }
+    .ptK59a_skillCardMain { flex: 1; min-width: 0; align-items: center; gap: 14px; display: flex }
+
+    .ptK59a_skillIcon {
+      background: var(--dshui-surface-2);
+      border-radius: 10px;
+      flex: none;
+      width: 40px;
+      height: 40px;
+      overflow: hidden;
+      line-height: 1;
+      font-size: 19px;
+      display: grid;
+      place-items: center;
+    }
+
+    .ptK59a_skillText { flex-direction: column; gap: 3px; min-width: 0; display: flex }
+    .ptK59a_skillName { color: var(--dshui-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: var(--dshui-text-size-sm); font-weight: var(--dshui-weight-semibold) }
+    .ptK59a_skillDesc { color: var(--dshui-text-tertiary); margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: var(--dshui-text-size-sm) }
+
+    .ptK59a_skillCheck {
       background: var(--dshui-surface-2);
       border: 1px solid var(--dshui-border-2);
-      border-radius: var(--dshui-radius-sm);
-      outline: none;
-      padding: var(--dshui-space-3) var(--dshui-space-4);
-      font-size: var(--dshui-text-size-md);
-    }
-
-    .ptK59a_toolbarSpacer { flex: 1 }
-
-    .ptK59a_checkboxLabel {
-      color: var(--dshui-text-secondary);
+      border-radius: 999px;
+      box-sizing: border-box;
       cursor: pointer;
-      align-items: center;
-      gap: var(--dshui-space-3);
-      font-size: var(--dshui-text-size-sm);
-      display: inline-flex;
-    }
-
-    .ptK59a_ghostButton {
-      color: var(--dshui-text-primary);
-      border: 1px solid var(--dshui-border-2);
-      cursor: pointer;
-      white-space: nowrap;
-      background: 0 0;
-      border-radius: var(--dshui-radius-sm);
-      padding: var(--dshui-space-2) var(--dshui-space-5);
-      font-size: var(--dshui-text-size-sm);
-    }
-
-    .ptK59a_ghostButton:hover:not(:disabled) { background: var(--dshui-surface-hover) }
-    .ptK59a_ghostButton:disabled { opacity: .45; cursor: default }
-
-    .ptK59a_formActions { align-items: center; gap: var(--dshui-space-4); display: flex }
-
-    .ptK59a_primaryButton {
-      color: var(--dshui-text-on-brand);
-      background: var(--dshui-brand-fill);
-      cursor: pointer;
-      white-space: nowrap;
-      border: none;
-      border-radius: var(--dshui-radius-sm);
-      align-self: flex-start;
-      padding: var(--dshui-space-3) var(--dshui-space-5);
-      font-size: var(--dshui-text-size-md);
-      font-weight: var(--dshui-weight-semibold);
-    }
-
-    .ptK59a_primaryButton:hover:not(:disabled) { background: var(--dshui-brand-hover) }
-    .ptK59a_primaryButton:disabled { opacity: .5; cursor: default }
-
-    .ptK59a_linkButton {
-      color: var(--dshui-business);
-      cursor: pointer;
-      white-space: nowrap;
-      background: 0 0;
-      border: none;
+      flex: none;
+      margin-left: auto;
       padding: 0;
-      font-size: var(--dshui-text-size-sm);
+      width: 40px;
+      height: 24px;
+      position: relative;
+      transition: background var(--dshui-duration-fast), border-color var(--dshui-duration-fast);
     }
 
-    .ptK59a_linkButton:hover:not(:disabled) { text-decoration: underline }
-    .ptK59a_linkButton:disabled { opacity: .45; cursor: default }
-    .ptK59a_linkButton[data-danger] { color: var(--dshui-danger) }
+    .ptK59a_skillCheck:after {
+      background: var(--dshui-surface-base);
+      border-radius: 999px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, .25);
+      content: "";
+      width: 18px;
+      height: 18px;
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      transition: transform var(--dshui-duration-fast), background var(--dshui-duration-fast);
+    }
+
+    .ptK59a_skillCheck:not([data-off]) { background: var(--dshui-ink-solid); border-color: var(--dshui-ink-solid) }
+    .ptK59a_skillCheck:not([data-off]):after { background: var(--dshui-ink-on-solid); transform: translateX(16px) }
+    .ptK59a_skillCheck:hover:not(:disabled) { border-color: var(--dshui-text-secondary) }
+    .ptK59a_skillCheck[data-off] { opacity: .65 }
+    .ptK59a_skillCheck:disabled { cursor: default }
+
+    .ptK59a_skillFold {
+      display: grid;
+      flex-basis: 100%;
+      grid-template-rows: 0fr;
+      transition: grid-template-rows var(--dshui-duration-base) var(--dshui-ease-standard);
+    }
+
+    .ptK59a_skillFold[data-open] { grid-template-rows: 1fr }
+
+    .ptK59a_skillDetails {
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+      opacity: 0;
+      display: flex;
+      transition: opacity var(--dshui-duration-fast) var(--dshui-ease-standard);
+    }
+
+    .ptK59a_skillDetailsBody { flex-direction: column; gap: 8px; padding: 10px 0 6px 54px; display: flex }
+
+    .ptK59a_skillFold[data-open] .ptK59a_skillDetails { opacity: 1 }
+    .ptK59a_detailRow { color: var(--dshui-text-secondary); gap: 10px; font-size: 12px; line-height: 1.5; display: flex }
+    .ptK59a_detailKey { color: var(--dshui-text-tertiary); flex: none; width: 52px }
+    .ptK59a_detailValue { overflow-wrap: anywhere }
+    .ptK59a_skillPath { color: var(--dshui-text-tertiary); word-break: break-all; margin: 0; font-family: var(--dshui-font-mono); font-size: 11px }
+
+    .ptK59a_empty { color: var(--dshui-text-tertiary); text-align: center; padding: var(--dshui-space-8) 0; font-size: var(--dshui-text-size-sm) }
 
     .ptK59a_banner {
       border: 1px solid var(--dshui-border-2);
       color: var(--dshui-text-secondary);
       overflow-wrap: anywhere;
       border-radius: var(--dshui-radius-sm);
-      padding: var(--dshui-space-4) var(--dshui-space-5);
-      font-size: var(--dshui-text-size-sm);
+      margin: 0;
+      padding: var(--dshui-space-3) var(--dshui-space-4);
+      font-size: var(--dshui-text-size-xs);
       line-height: var(--dshui-line-normal);
     }
 
     .ptK59a_banner[data-kind=ok] { color: var(--dshui-success); border-color: var(--dshui-success) }
     .ptK59a_banner[data-kind=error] { color: var(--dshui-danger); border-color: var(--dshui-danger) }
 
-    .ptK59a_empty {
-      text-align: center;
-      color: var(--dshui-text-tertiary);
-      padding: var(--dshui-space-7) var(--dshui-space-5);
-      font-size: var(--dshui-text-size-sm);
-    }
-
-    .ptK59a_list {
-      border: 1px solid var(--dshui-border-1);
-      border-radius: var(--dshui-radius-md);
-      flex-direction: column;
-      flex: 1;
-      gap: var(--dshui-space-5);
-      min-height: 0;
-      padding: var(--dshui-space-4) var(--dshui-space-5) var(--dshui-space-4);
-      display: flex;
-      overflow-y: auto;
-    }
-
-    .ptK59a_group { flex-direction: column; gap: var(--dshui-space-3); display: flex }
-    .ptK59a_groupTitle { color: var(--dshui-text-primary); margin: 0; font-size: var(--dshui-text-size-md); font-weight: var(--dshui-weight-semibold) }
-    .ptK59a_count { color: var(--dshui-text-secondary); margin-left: var(--dshui-space-3); font-weight: var(--dshui-weight-regular) }
-    .ptK59a_groupHint { color: var(--dshui-text-secondary); margin: 0; font-size: var(--dshui-text-size-xs) }
-
-    .ptK59a_skillRow { border-bottom: 1px solid var(--dshui-border-1); padding: var(--dshui-space-4) 0 }
-    .ptK59a_skillRow:last-child { border-bottom: none }
-    .ptK59a_skillRow:hover { background: var(--dshui-surface-hover) }
-
-    .ptK59a_skillHeader { flex-wrap: wrap; align-items: center; gap: var(--dshui-space-4); display: flex }
-
-    .ptK59a_skillName {
-      color: var(--dshui-text-primary);
-      font-size: var(--dshui-text-size-md);
-      font-weight: var(--dshui-weight-semibold);
-      font-family: var(--dshui-font-mono);
-    }
-
-    .ptK59a_badge {
-      border: 1px solid var(--dshui-border-2);
-      color: var(--dshui-text-secondary);
-      white-space: nowrap;
-      border-radius: var(--dshui-radius-pill);
-      padding: var(--dshui-space-1) var(--dshui-space-4);
-      font-size: var(--dshui-text-size-xs);
-      line-height: var(--dshui-line-normal);
-      display: inline-block;
-    }
-
-    .ptK59a_badgeWorkspace { color: var(--dshui-text-secondary) }
-    .ptK59a_badgeInvokable { color: var(--dshui-success); border-color: var(--dshui-success) }
-    .ptK59a_badgeIsolated { color: var(--dshui-warn); border-color: var(--dshui-warn) }
-    .ptK59a_skillIsolated { opacity: .76 }
-    .ptK59a_skillIsolated:hover { opacity: .98 }
-
-    .ptK59a_switch {
-      cursor: pointer;
-      background: 0 0;
-      border: none;
-      border-radius: var(--dshui-radius-pill);
-      align-items: center;
-      margin-left: auto;
-      padding: var(--dshui-space-1);
-      display: inline-flex;
-    }
-
-    .ptK59a_switch:disabled { opacity: .45; cursor: default }
-
-    .ptK59a_switchTrack {
-      background: var(--dshui-border-2);
-      border-radius: var(--dshui-radius-pill);
-      flex: none;
-      width: 30px;
-      height: 16px;
-      transition: background var(--dshui-duration-base);
-      position: relative;
-    }
-
-    .ptK59a_switchThumb {
-      background: var(--dshui-surface-base);
-      border-radius: var(--dshui-radius-circle);
-      width: 12px;
-      height: 12px;
-      transition: left var(--dshui-duration-base);
-      position: absolute;
-      top: 2px;
-      left: 2px;
-    }
-
-    .ptK59a_switch[aria-checked=true] .ptK59a_switchTrack { background: var(--dshui-success) }
-    .ptK59a_switch[aria-checked=true] .ptK59a_switchThumb { left: 16px }
+    .ptK59a_linkButton { color: var(--dshui-business); cursor: pointer; white-space: nowrap; background: 0 0; border: none; padding: 0; font-size: var(--dshui-text-size-xs) }
+    .ptK59a_linkButton:hover:not(:disabled) { text-decoration: underline }
+    .ptK59a_linkButton:disabled { opacity: .45; cursor: default }
+    .ptK59a_linkButton[data-danger] { color: var(--dshui-danger) }
     .ptK59a_deleteButton { margin-left: var(--dshui-space-2) }
 
-    .ptK59a_skillDesc { color: var(--dshui-text-primary); margin: var(--dshui-space-3) 0 0; font-size: var(--dshui-text-size-sm); line-height: var(--dshui-line-normal) }
-    .ptK59a_skillWhen { color: var(--dshui-text-secondary); margin: var(--dshui-space-2) 0 0; font-size: var(--dshui-text-size-xs) }
+    .ptK59a_modal { background: rgba(0, 0, 0, .3); padding: 24px; display: flex; align-items: center; justify-content: center; inset: 0; position: fixed; z-index: 60 }
 
-    .ptK59a_skillPath {
-      color: var(--dshui-text-tertiary);
-      font-size: var(--dshui-text-size-xs);
-      font-family: var(--dshui-font-mono);
-      word-break: break-all;
-      margin: var(--dshui-space-3) 0 0;
+    .ptK59a_modalCard {
+      background: var(--dshui-surface-base);
+      border-radius: 16px;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, .24);
+      max-height: 86vh;
+      overflow: auto;
+      padding: 28px;
+      width: min(720px, 100%);
     }
 
-    .ptK59a_form { flex-direction: column; gap: var(--dshui-space-4); max-width: 640px; display: flex }
+    .ptK59a_modalTitle { color: var(--dshui-text-primary); margin: 0 0 var(--dshui-space-5); font-size: 18px; font-weight: var(--dshui-weight-semibold) }
+
+    .ptK59a_tabBody { flex-direction: column; flex: 1; gap: var(--dshui-space-4); min-height: 0; display: flex }
+    .ptK59a_form { flex-direction: column; gap: var(--dshui-space-4); display: flex }
     .ptK59a_field { flex-direction: column; gap: var(--dshui-space-2); display: flex }
     .ptK59a_fieldLabel { color: var(--dshui-text-secondary); font-size: var(--dshui-text-size-sm); font-weight: var(--dshui-weight-semibold) }
 
@@ -1083,7 +1064,26 @@ function dshuiComponent_skill_explorer(rt) {
     .ptK59a_input:focus { border-color: var(--dshui-business) }
     .ptK59a_input::placeholder { color: var(--dshui-text-tertiary) }
     .ptK59a_input:disabled { opacity: .55 }
-    .ptK59a_textarea { min-height: 140px; font-family: var(--dshui-font-mono) }
+    .ptK59a_textarea { min-height: 220px; font-family: var(--dshui-font-mono) }
+
+    .ptK59a_select {
+      color: var(--dshui-text-primary);
+      background: var(--dshui-surface-2);
+      border: 1px solid var(--dshui-border-2);
+      border-radius: var(--dshui-radius-sm);
+      outline: none;
+      padding: var(--dshui-space-3) var(--dshui-space-4);
+      font-size: var(--dshui-text-size-md);
+    }
+
+    .ptK59a_primaryButton { color: var(--dshui-text-on-brand); background: var(--dshui-brand-fill); border: none; border-radius: var(--dshui-radius-sm); cursor: pointer; padding: var(--dshui-space-3) var(--dshui-space-5); font-size: var(--dshui-text-size-sm); font-weight: var(--dshui-weight-semibold) }
+    .ptK59a_primaryButton:hover:not(:disabled) { background: var(--dshui-brand-hover) }
+    .ptK59a_primaryButton:disabled { opacity: .5; cursor: default }
+
+    .ptK59a_ghostButton { color: var(--dshui-text-primary); background: 0 0; border: 1px solid var(--dshui-border-2); border-radius: var(--dshui-radius-sm); cursor: pointer; padding: var(--dshui-space-2) var(--dshui-space-5); font-size: var(--dshui-text-size-sm) }
+    .ptK59a_ghostButton:hover:not(:disabled) { background: var(--dshui-surface-hover) }
+    .ptK59a_ghostButton:disabled { opacity: .45; cursor: default }
+    .ptK59a_formActions { align-items: center; gap: var(--dshui-space-4); display: flex }
     .ptK59a_note { color: var(--dshui-text-tertiary); margin: 0; font-size: var(--dshui-text-size-xs); line-height: var(--dshui-line-loose) }
   `
 
@@ -1091,14 +1091,11 @@ function dshuiComponent_skill_explorer(rt) {
   rt.style('skill-explorer', css)
 
   var panelCss = {
-    "badge": "ptK59a_badge",
-    "badgeInvokable": "ptK59a_badgeInvokable",
-    "badgeIsolated": "ptK59a_badgeIsolated",
-    "badgeWorkspace": "ptK59a_badgeWorkspace",
     "banner": "ptK59a_banner",
-    "checkboxLabel": "ptK59a_checkboxLabel",
-    "count": "ptK59a_count",
     "deleteButton": "ptK59a_deleteButton",
+    "detailKey": "ptK59a_detailKey",
+    "detailRow": "ptK59a_detailRow",
+    "detailValue": "ptK59a_detailValue",
     "empty": "ptK59a_empty",
     "field": "ptK59a_field",
     "fieldLabel": "ptK59a_fieldLabel",
@@ -1106,12 +1103,19 @@ function dshuiComponent_skill_explorer(rt) {
     "form": "ptK59a_form",
     "formActions": "ptK59a_formActions",
     "ghostButton": "ptK59a_ghostButton",
-    "group": "ptK59a_group",
-    "groupHint": "ptK59a_groupHint",
     "groupTitle": "ptK59a_groupTitle",
+    "iconButton": "ptK59a_iconButton",
     "input": "ptK59a_input",
     "linkButton": "ptK59a_linkButton",
+    "column": "ptK59a_column",
     "list": "ptK59a_list",
+    "menu": "ptK59a_menu",
+    "menuItem": "ptK59a_menuItem",
+    "menuLabel": "ptK59a_menuLabel",
+    "menuWrap": "ptK59a_menuWrap",
+    "modal": "ptK59a_modal",
+    "modalCard": "ptK59a_modalCard",
+    "modalTitle": "ptK59a_modalTitle",
     "note": "ptK59a_note",
     "panel": "ptK59a_panel",
     "panelContent": "ptK59a_panelContent",
@@ -1119,181 +1123,27 @@ function dshuiComponent_skill_explorer(rt) {
     "panelTitle": "ptK59a_panelTitle",
     "primaryButton": "ptK59a_primaryButton",
     "search": "ptK59a_search",
+    "searchIcon": "ptK59a_searchIcon",
+    "searchWrap": "ptK59a_searchWrap",
+    "section": "ptK59a_section",
     "select": "ptK59a_select",
+    "skillCardMain": "ptK59a_skillCardMain",
+    "skillCheck": "ptK59a_skillCheck",
     "skillDesc": "ptK59a_skillDesc",
-    "skillHeader": "ptK59a_skillHeader",
-    "skillIsolated": "ptK59a_skillIsolated",
+    "skillDetails": "ptK59a_skillDetails",
+    "skillDetailsBody": "ptK59a_skillDetailsBody",
+    "skillFold": "ptK59a_skillFold",
+    "skillIcon": "ptK59a_skillIcon",
     "skillName": "ptK59a_skillName",
     "skillPath": "ptK59a_skillPath",
     "skillRow": "ptK59a_skillRow",
-    "skillWhen": "ptK59a_skillWhen",
-    "switch": "ptK59a_switch",
-    "switchThumb": "ptK59a_switchThumb",
-    "switchTrack": "ptK59a_switchTrack",
-    "tab": "ptK59a_tab",
-    "tabBar": "ptK59a_tabBar",
+    "skillText": "ptK59a_skillText",
     "tabBody": "ptK59a_tabBody",
     "textarea": "ptK59a_textarea",
     "toolbar": "ptK59a_toolbar",
-    "toolbarSpacer": "ptK59a_toolbarSpacer",
     "view": "ptK59a_view"
   };
-  /**
-   * Create tab: the new-skill form (user or project root).
-   *
-   * The host's create route needs the workspace the panel is showing, which the
-   * list payload carries. The inactive tab unmounts, so a user who opens this
-   * tab first has no cwd: the first submit resolves it with one list call and
-   * reuses it afterwards.
-   */
-  /** The create tab body. */
-  function CreateTab({ api }) {
-    const [root, setRoot] = react.useState("user");
-    const [name, setName] = react.useState("");
-    const [description, setDescription] = react.useState("");
-    const [whenToUse, setWhenToUse] = react.useState("");
-    const [content, setContent] = react.useState("");
-    const [cwd, setCwd] = react.useState(void 0);
-    const [busy, setBusy] = react.useState(false);
-    const [feedback, setFeedback] = react.useState(void 0);
-    const submit = async (event) => {
-      event.preventDefault();
-      if (name.trim() === "" || description.trim() === "" || content.trim() === "") {
-        setFeedback({
-          text: tt("create.empty"),
-          kind: "error"
-        });
-        return;
-      }
-      setBusy(true);
-      try {
-        const workspace = cwd ?? (await api.list()).cwd;
-        setCwd(workspace);
-        const result = await api.create({
-          root,
-          name: name.trim(),
-          description: description.trim(),
-          whenToUse: whenToUse.trim() || void 0,
-          content,
-          cwd: workspace
-        });
-        setFeedback({
-          text: tt("create.created", { path: result.path }),
-          kind: "ok"
-        });
-        setName("");
-        setDescription("");
-        setWhenToUse("");
-        setContent("");
-      } catch (err) {
-        setFeedback({
-          text: tt("create.failed", { error: err instanceof Error ? err.message : String(err) }),
-          kind: "error"
-        });
-      } finally {
-        setBusy(false);
-      }
-    };
-    return jsx("div", {
-      className: panelCss.tabBody,
-      children: jsxs("form", {
-        className: panelCss.form,
-        onSubmit: (event) => {
-          submit(event);
-        },
-        children: [
-          jsxs("label", {
-            className: panelCss.field,
-            children: [jsx("span", {
-              className: panelCss.fieldLabel,
-              children: tt("create.root")
-            }), jsxs("select", {
-              className: panelCss.select,
-              value: root,
-              onChange: (event) => {
-                setRoot(event.target.value);
-              },
-              children: [jsx("option", {
-                value: "user",
-                children: tt("create.root.user")
-              }), jsx("option", {
-                value: "project",
-                children: tt("create.root.project")
-              })]
-            })]
-          }),
-          jsxs("label", {
-            className: panelCss.field,
-            children: [jsx("span", {
-              className: panelCss.fieldLabel,
-              children: tt("create.name")
-            }), jsx("input", {
-              className: panelCss.input,
-              value: name,
-              placeholder: tt("create.namePlaceholder"),
-              onChange: (event) => {
-                setName(event.target.value);
-              }
-            })]
-          }),
-          jsxs("label", {
-            className: panelCss.field,
-            children: [jsx("span", {
-              className: panelCss.fieldLabel,
-              children: tt("create.description")
-            }), jsx("input", {
-              className: panelCss.input,
-              value: description,
-              onChange: (event) => {
-                setDescription(event.target.value);
-              }
-            })]
-          }),
-          jsxs("label", {
-            className: panelCss.field,
-            children: [jsx("span", {
-              className: panelCss.fieldLabel,
-              children: tt("create.whenToUse")
-            }), jsx("input", {
-              className: panelCss.input,
-              value: whenToUse,
-              onChange: (event) => {
-                setWhenToUse(event.target.value);
-              }
-            })]
-          }),
-          jsxs("label", {
-            className: panelCss.field,
-            children: [jsx("span", {
-              className: panelCss.fieldLabel,
-              children: tt("create.content")
-            }), jsx("textarea", {
-              className: `${panelCss.input} ${panelCss.textarea}`,
-              value: content,
-              onChange: (event) => {
-                setContent(event.target.value);
-              }
-            })]
-          }),
-          jsx("button", {
-            type: "submit",
-            className: panelCss.primaryButton,
-            disabled: busy,
-            children: tt("create.submit")
-          }),
-          feedback !== void 0 && jsx("p", {
-            className: panelCss.banner,
-            "data-kind": feedback.kind,
-            children: feedback.text
-          }),
-          jsx("p", {
-            className: panelCss.note,
-            children: tt("create.note")
-          })
-        ]
-      })
-    });
-  }
+
   /**
    * Edit tab: the in-place editor for one skill.
    *
@@ -1548,28 +1398,58 @@ function dshuiComponent_skill_explorer(rt) {
     if (skill.userInvocable) marks.push(tt("list.mark.user"));
     return marks.join(" / ");
   }
-  /** One skill row: name, badges, enable switch, edit and delete actions. */
-  function SkillRow({ skill, api, onChanged, onEdit }) {
+  /**
+   * The glyph a card shows: the skill's declared icon, else its initial.
+   * A path-like icon has no served URL behind it, so it falls back the same way.
+   * @param skill - one row from the list payload.
+   * @returns the glyph text.
+   */
+  function skillGlyph(skill) {
+    const icon = typeof skill.icon === "string" ? skill.icon.trim() : "";
+    if (icon !== "" && !/\.(png|jpe?g|svg|webp|gif)$/iu.test(icon)) return icon;
+    return (skill.name !== "" ? skill.name : "?").slice(0, 1).toUpperCase();
+  }
+  /**
+   * One skill card: glyph, name, a single-line description and the enabled
+   * check. Clicking the card opens the detail block under it, which is where
+   * source, workspace, provider, when-to-use, path and the edit/delete actions
+   * live — the surface stays quiet until someone asks for the details.
+   */
+  function SkillCard({ skill, api, onChanged, onEdit }) {
     const [busy, setBusy] = react.useState(false);
     const [error, setError] = react.useState(void 0);
+    const [open, setOpen] = react.useState(false);
+    // The check follows this local copy so one click flips it immediately; the
+    // list refetch only confirms it, and a failed write rolls the copy back.
+    const [enabled, setEnabled] = react.useState(skill.modelInvocable === true);
     const busyRef = react.useRef(false);
-    const toggle = async () => {
+    react.useEffect(() => {
+      setEnabled(skill.modelInvocable === true);
+    }, [skill.modelInvocable]);
+    const toggle = async (event) => {
+      event.stopPropagation();
       if (busyRef.current || !canToggle(skill)) return;
+      const next = !enabled;
       busyRef.current = true;
       setBusy(true);
+      setEnabled(next);
       setError(void 0);
       try {
-        if (skill.path !== void 0) await api.setEnabled(skill.name, skill.path, !skill.modelInvocable);
-        else await api.setProviderEnabled(skill.name, skill.provider, !skill.modelInvocable);
-        onChanged();
+        if (skill.path !== void 0) await api.setEnabled(skill.name, skill.path, next);
+        else await api.setProviderEnabled(skill.name, skill.provider, next);
+        // No refetch here: the switch is the source of truth for this row, and
+        // a list round-trip races the host's rescan, which is what made the
+        // check flip back and forth. A failed write rolls the local copy back.
       } catch (err) {
+        setEnabled(!next);
         setError(tt("list.toggleFailed", { error: err instanceof Error ? err.message : String(err) }));
       } finally {
         busyRef.current = false;
         setBusy(false);
       }
     };
-    const remove = async () => {
+    const remove = async (event) => {
+      event.stopPropagation();
       const path = skill.path;
       if (path === void 0) return;
       if (!window.confirm(tt("list.deleteConfirm", { name: skill.name }))) return;
@@ -1587,115 +1467,98 @@ function dshuiComponent_skill_explorer(rt) {
         setBusy(false);
       }
     };
-    const isIsolated = skill.isActiveWorkspace === false;
-    const fileBadge = skill.path === void 0 ? localFileBadge(skill) : void 0;
+    // Bundled skills ship with DSH and are not the panel's to switch or delete:
+    // their files live inside the install and a write would move them away.
+    const canSwitch = canToggle(skill) && skill.level !== "bundled";
+    const editable = skill.path !== void 0 && skill.linked !== true && skill.level !== "bundled";
+    const description = typeof skill.description === "string" && skill.description !== "" ? skill.description : "";
     return jsxs("article", {
-      className: `${panelCss.skillRow}${isIsolated ? ` ${panelCss.skillIsolated}` : ""}`,
+      className: panelCss.skillRow,
       "data-dsh-part": "skill-row",
+      "data-open": open ? "" : void 0,
+      onClick: () => {
+        setOpen(!open);
+      },
       children: [
-        jsxs("header", {
-          className: panelCss.skillHeader,
+        jsxs("div", {
+          className: panelCss.skillCardMain,
           children: [
             jsx("span", {
-              className: panelCss.skillName,
-              children: skill.name
+              className: panelCss.skillIcon,
+              children: skillGlyph(skill)
             }),
-            skill.workspaceName !== void 0 && jsx("span", {
-              className: `${panelCss.badge} ${panelCss.badgeWorkspace}`,
-              children: skill.workspaceName
-            }),
-            isIsolated && jsx("span", {
-              className: `${panelCss.badge} ${panelCss.badgeIsolated}`,
-              title: tt("workspace.isolatedHint", { workspace: skill.workspaceName ?? "" }),
-              children: tt("workspace.isolated")
-            }),
-            skill.provider !== void 0 && jsx("span", {
-              className: panelCss.badge,
-              title: tt("provider.tooltip", { provider: providerLabel(skill.provider) }),
-              children: providerLabel(skill.provider)
-            }),
-            skill.linked === true && jsx("span", {
-              className: panelCss.badge,
-              children: tt("list.linked")
-            }),
-            fileBadge !== void 0 && jsx("span", {
-              className: panelCss.badge,
-              title: fileBadge.tooltip,
-              children: fileBadge.label
-            }),
-            (skill.modelInvocable || skill.userInvocable) && jsx("span", {
-              className: `${panelCss.badge} ${panelCss.badgeInvokable}`,
-              title: tt("list.invokableTooltip"),
-              children: tt("list.invokable", { marks: invokableMarks(skill) })
-            }),
-            canToggle(skill) && jsx("button", {
-              type: "button",
-              className: panelCss.switch,
-              role: "switch",
-              "aria-checked": skill.modelInvocable,
-              "aria-label": skill.modelInvocable ? tt("list.enabled") : tt("list.disabled"),
-              title: skill.modelInvocable ? tt("list.enabled") : tt("list.disabled"),
-              disabled: busy,
-              onClick: () => {
-                toggle();
-              },
-              children: jsx("span", {
-                className: panelCss.switchTrack,
-                children: jsx("span", { className: panelCss.switchThumb })
-              })
-            }),
-            skill.path !== void 0 && skill.linked !== true && jsx("button", {
-              type: "button",
-              className: panelCss.linkButton,
-              disabled: busy,
-              onClick: () => {
-                onEdit(skill);
-              },
-              children: tt("list.edit")
-            }),
-            skill.path !== void 0 && skill.linked !== true && jsx("button", {
-              type: "button",
-              className: `${panelCss.linkButton} ${panelCss.deleteButton}`,
-              "data-danger": "",
-              disabled: busy,
-              onClick: () => {
-                remove();
-              },
-              children: tt("list.delete")
+            jsxs("span", {
+              className: panelCss.skillText,
+              children: [
+                jsx("span", { className: panelCss.skillName, children: skill.name }),
+                jsx("span", { className: panelCss.skillDesc, children: description })
+              ]
             })
           ]
         }),
-        jsx("p", {
-          className: panelCss.skillDesc,
-          children: skill.description
-        }),
-        skill.whenToUse !== void 0 && skill.whenToUse !== "" && jsx("p", {
-          className: panelCss.skillWhen,
-          children: tt("list.when", { when: skill.whenToUse })
-        }),
-        skill.path !== void 0 && jsx("div", {
-          className: panelCss.skillPath,
-          children: skill.path
-        }),
-        skill.path === void 0 && jsx("p", {
-          className: panelCss.skillWhen,
-          children: localFileHint(skill)
-        }),
-        error !== void 0 && jsx("p", {
-          className: panelCss.banner,
-          "data-kind": "error",
-          children: error
+        canSwitch ? jsx("button", {
+          type: "button",
+          role: "switch",
+          className: panelCss.skillCheck,
+          "data-off": enabled ? void 0 : "",
+          "aria-checked": enabled,
+          "aria-label": enabled ? tt("list.enabled") : tt("list.disabled"),
+          title: enabled ? tt("list.enabled") : tt("list.disabled"),
+          disabled: busy,
+          onClick: toggle
+        }) : null,
+        jsx("div", {
+          className: panelCss.skillFold,
+          "data-open": open ? "" : void 0,
+          children: jsxs("div", {
+            className: panelCss.skillDetails,
+            children: jsx("div", {
+              className: panelCss.skillDetailsBody,
+              children: [
+            jsx("div", { className: panelCss.detailRow, children: [jsx("span", { className: panelCss.detailKey, children: tt("detail.source") }), jsx("span", { className: panelCss.detailValue, children: tt(`group.${skill.level}`) })] }),
+            skill.workspaceName !== void 0 && jsx("div", { className: panelCss.detailRow, children: [jsx("span", { className: panelCss.detailKey, children: tt("detail.workspace") }), jsx("span", { className: panelCss.detailValue, children: skill.workspaceName })] }),
+            skill.provider !== void 0 && jsx("div", { className: panelCss.detailRow, children: [jsx("span", { className: panelCss.detailKey, children: tt("detail.provider") }), jsx("span", { className: panelCss.detailValue, children: providerLabel(skill.provider) })] }),
+            skill.whenToUse !== void 0 && skill.whenToUse !== "" && jsx("div", { className: panelCss.detailRow, children: [jsx("span", { className: panelCss.detailKey, children: tt("detail.when") }), jsx("span", { className: panelCss.detailValue, children: skill.whenToUse })] }),
+            skill.path !== void 0 && jsx("p", { className: panelCss.skillPath, children: skill.path }),
+            error !== void 0 && jsx("p", { className: panelCss.banner, "data-kind": "error", children: error }),
+            (editable || canSwitch) && jsxs("div", {
+              className: panelCss.formActions,
+              children: [
+                editable && jsx("button", {
+                  type: "button",
+                  className: panelCss.linkButton,
+                  disabled: busy,
+                  onClick: (event) => {
+                    event.stopPropagation();
+                    onEdit(skill);
+                  },
+                  children: tt("list.edit")
+                }),
+                editable && jsx("button", {
+                  type: "button",
+                  className: `${panelCss.linkButton} ${panelCss.deleteButton}`,
+                  "data-danger": "",
+                  disabled: busy,
+                  onClick: remove,
+                  children: tt("list.delete")
+                })
+              ]
+            })
+              ]
+            })
+          })
         })
       ]
     });
   }
-  /** The skills tab body. */
+  /** The skills page: one search line, then the installed and system sections. */
   function SkillsTab({ api, onEdit }) {
     const [payload, setPayload] = react.useState(void 0);
     const [selectedWorkspace, setSelectedWorkspace] = react.useState("all");
     const [query, setQuery] = react.useState("");
     const [error, setError] = react.useState(void 0);
     const [loading, setLoading] = react.useState(true);
+    const [menuOpen, setMenuOpen] = react.useState(false);
     const loadSeq = react.useRef(0);
     const load = async () => {
       const seq = ++loadSeq.current;
@@ -1715,39 +1578,26 @@ function dshuiComponent_skill_explorer(rt) {
     react.useEffect(() => {
       load();
     }, [api]);
-    const refreshButton = loading ? void 0 : jsx("button", {
-      type: "button",
-      className: panelCss.ghostButton,
-      onClick: () => {
-        load();
-      },
-      children: tt("refresh")
-    });
-    if (payload === void 0) return jsx("div", {
-      className: panelCss.fillBody,
-      children: loading ? jsx("p", {
-        className: panelCss.empty,
-        children: tt("list.loading")
-      }) : jsxs(Fragment, { children: [jsx("p", {
-        className: panelCss.empty,
-        children: error
-      }), jsx("div", {
-        className: panelCss.toolbar,
-        children: refreshButton
-      })] })
-    });
-    const visibleGroups = selectGroups(payload.groups, {
-      workspace: selectedWorkspace,
-      query
-    });
-    const visibleCount = visibleGroups.reduce((total, group) => total + group.skills.length, 0);
-    return jsxs("div", {
-      className: panelCss.fillBody,
+    const workspaces = payload !== void 0 && Array.isArray(payload.workspaces) ? payload.workspaces : [];
+    const toolbar = jsxs("div", {
+      className: panelCss.toolbar,
+      "data-dsh-part": "filter-bar",
       children: [
         jsxs("div", {
-          className: panelCss.toolbar,
-          "data-dsh-part": "filter-bar",
+          className: panelCss.searchWrap,
           children: [
+            jsx("svg", {
+              className: panelCss.searchIcon,
+              viewBox: "0 0 16 16",
+              width: 16,
+              height: 16,
+              fill: "none",
+              stroke: "currentColor",
+              strokeWidth: 1.4,
+              strokeLinecap: "round",
+              "aria-hidden": "true",
+              children: [jsx("circle", { cx: 7, cy: 7, r: 4.5 }), jsx("path", { d: "M10.4 10.4L14 14" })]
+            }),
             jsx("input", {
               className: panelCss.search,
               type: "search",
@@ -1761,100 +1611,147 @@ function dshuiComponent_skill_explorer(rt) {
               onKeyDown: (event) => {
                 if (event.key === "Escape" && query !== "") setQuery("");
               }
-            }),
-            payload.workspaces !== void 0 && payload.workspaces.length > 1 && jsxs("select", {
-              className: panelCss.select,
-              value: selectedWorkspace,
-              "aria-label": tt("filter.workspaceLabel"),
-              onChange: (event) => {
-                setSelectedWorkspace(event.target.value);
-              },
-              children: [jsx("option", {
-                value: "all",
-                children: tt("filter.workspaceAll")
-              }), payload.workspaces.map((ws) => jsx("option", {
-                value: ws.root,
-                children: ws.active ? tt("filter.workspaceCurrent", { name: ws.name }) : ws.name
-              }, ws.root))]
-            }),
-            jsx("div", { className: panelCss.toolbarSpacer }),
-            refreshButton
+            })
           ]
         }),
-        error !== void 0 && jsx("p", {
-          className: panelCss.banner,
-          "data-kind": "error",
-          children: error
-        }),
-        visibleCount === 0 ? jsx("p", {
-          className: panelCss.empty,
-          children: query.trim() === "" ? tt("filter.emptyWorkspace") : tt("filter.empty", { query: query.trim() })
-        }) : jsx("div", {
-          className: panelCss.list,
-          children: visibleGroups.map((group) => {
-            const groupKey = `group.${group.key}`;
-            const hintKey = `groupHint.${group.key}`;
-            const title = groupKey in zh ? tt(groupKey) : group.title;
-            const hint = hintKey in zh ? tt(hintKey) : group.hint;
-            return jsxs("section", {
-              className: panelCss.group,
-              children: [
-                jsxs("h3", {
-                  className: panelCss.groupTitle,
-                  children: [title, jsx("span", {
-                    className: panelCss.count,
-                    children: tt("list.count", { count: String(group.skills.length) })
-                  })]
-                }),
-                hint !== "" && jsx("p", {
-                  className: panelCss.groupHint,
-                  children: hint
-                }),
-                group.skills.map((skill) => jsx(SkillRow, {
-                  skill,
-                  api,
-                  onChanged: () => {
-                    load();
-                  },
-                  onEdit
-                }, skill.name))
-              ]
-            }, group.key);
+        jsx("button", {
+          type: "button",
+          className: panelCss.iconButton,
+          title: tt("refresh"),
+          "aria-label": tt("refresh"),
+          disabled: loading,
+          onClick: () => {
+            load();
+          },
+          children: jsx("svg", {
+            viewBox: "0 0 16 16",
+            width: 17,
+            height: 17,
+            fill: "none",
+            stroke: "currentColor",
+            strokeWidth: 1.4,
+            strokeLinecap: "round",
+            strokeLinejoin: "round",
+            "aria-hidden": "true",
+            children: [jsx("path", { d: "M13.2 8a5.2 5.2 0 1 1-1.6-3.7" }), jsx("path", { d: "M13.4 2.6v3.2h-3.2" })]
           })
+        }),
+        jsxs("div", {
+          className: panelCss.menuWrap,
+          children: [
+            jsx("button", {
+              type: "button",
+              className: panelCss.iconButton,
+              title: tt("filter.workspaceLabel"),
+              "aria-label": tt("filter.workspaceLabel"),
+              "aria-expanded": menuOpen,
+              onClick: () => {
+                setMenuOpen(!menuOpen);
+              },
+              children: jsx("svg", {
+                viewBox: "0 0 16 16",
+                width: 17,
+                height: 17,
+                fill: "none",
+                stroke: "currentColor",
+                strokeWidth: 1.4,
+                strokeLinecap: "round",
+                "aria-hidden": "true",
+                children: [
+                  jsx("circle", { cx: 8, cy: 8, r: 2.2 }),
+                  jsx("path", { d: "M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1" })
+                ]
+              })
+            }),
+            menuOpen && jsxs("div", {
+              className: panelCss.menu,
+              children: [
+                jsx("div", { className: panelCss.menuLabel, children: tt("filter.workspaceLabel") }),
+                jsx("button", {
+                  type: "button",
+                  className: panelCss.menuItem,
+                  "data-active": selectedWorkspace === "all" ? "" : void 0,
+                  onClick: () => {
+                    setSelectedWorkspace("all");
+                    setMenuOpen(false);
+                  },
+                  children: tt("filter.workspaceAll")
+                }),
+                workspaces.map((workspace) => jsx("button", {
+                  type: "button",
+                  className: panelCss.menuItem,
+                  "data-active": selectedWorkspace === workspace.root ? "" : void 0,
+                  onClick: () => {
+                    setSelectedWorkspace(workspace.root);
+                    setMenuOpen(false);
+                  },
+                  children: workspace.active ? tt("filter.workspaceCurrent", { name: workspace.name }) : workspace.name
+                }, workspace.root))
+              ]
+            })
+          ]
         })
       ]
     });
+    if (payload === void 0) {
+      return jsxs("div", {
+        className: panelCss.fillBody,
+        children: [
+          toolbar,
+          jsx("p", { className: panelCss.empty, children: loading ? tt("list.loading") : error })
+        ]
+      });
+    }
+    const visibleGroups = selectGroups(payload.groups, {
+      workspace: selectedWorkspace,
+      query
+    });
+    const installed = [];
+    const system = [];
+    for (const group of visibleGroups) {
+      const bucket = group.key === "bundled" || group.key === "runtime" ? system : installed;
+      for (const skill of group.skills) bucket.push(skill);
+    }
+    const byName = (left, right) => left.name.localeCompare(right.name);
+    installed.sort(byName);
+    system.sort(byName);
+    const sections = [];
+    if (installed.length > 0) sections.push({ key: "installed", title: tt("group.installed"), skills: installed });
+    if (system.length > 0) sections.push({ key: "system", title: tt("group.system"), skills: system });
+    const total = installed.length + system.length;
+    return jsxs("div", {
+      className: panelCss.fillBody,
+      children: [
+        toolbar,
+        error !== void 0 && jsx("p", { className: panelCss.banner, "data-kind": "error", children: error }),
+        total === 0 ? jsx("p", {
+          className: panelCss.empty,
+          children: query.trim() === "" ? tt("filter.emptyWorkspace") : tt("filter.empty", { query: query.trim() })
+        }) : sections.map((section) => jsxs("section", {
+          className: panelCss.section,
+          children: [
+            jsx("h3", { className: panelCss.groupTitle, children: section.title }),
+            jsx("div", {
+              className: panelCss.list,
+              children: [0, 1].map((side) => jsx("div", {
+                className: panelCss.column,
+                children: section.skills.filter((skill, index) => index % 2 === side).map((skill) => jsx(SkillCard, {
+                  skill,
+                  api,
+                  onChanged: load,
+                  onEdit
+                }, `${skill.provider ?? "scan"}:${skill.name}`))
+              }, side))
+            })
+          ]
+        }, section.key))
+      ]
+    });
   }
-  /**
-   * The skill center panel shell: a title header, a tab bar, and the active
-   * tab's content.
-   *
-   * The tab and the editor target live in the controller, not in component
-   * state: the layout mounts this page only while the panel is selected, so
-   * local state would drop the open tab and any in-progress edit on every panel
-   * switch. The inactive tab unmounts, so the tab that needs the workspace
-   * resolves it itself and the list refetches when it returns.
-   *
-   * The edit tab appears only while a skill is being edited: the list row hands
-   * the chosen skill over, and leaving the editor returns to the list.
-   */
+
   /** The skill center panel. */
   function SkillPanel({ controller, api }) {
-    const { activeTab, editing } = react.useSyncExternalStore((listener) => controller.subscribe(listener), () => controller.getSnapshot());
-    const tabs = [
-      {
-        id: "skills",
-        label: () => tt("tab.list")
-      },
-      {
-        id: "create",
-        label: () => tt("tab.create")
-      },
-      ...editing === void 0 ? [] : [{
-        id: "edit",
-        label: () => tt("tab.edit")
-      }]
-    ];
+    const { editing } = react.useSyncExternalStore((listener) => controller.subscribe(listener), () => controller.getSnapshot());
     return jsxs("div", {
       className: panelCss.panel,
       "data-dsh-plugin": "skill-explorer",
@@ -1867,45 +1764,46 @@ function dshuiComponent_skill_explorer(rt) {
           })
         }),
         jsx("div", {
-          className: panelCss.tabBar,
-          role: "tablist",
-          "data-dsh-part": "tab-bar",
-          children: tabs.map((tab) => jsx("button", {
-            type: "button",
-            role: "tab",
-            "aria-selected": activeTab === tab.id,
-            "data-active": activeTab === tab.id ? "" : void 0,
-            "data-dsh-part": "tab",
-            className: panelCss.tab,
-            onClick: () => {
-              controller.setActiveTab(tab.id);
-            },
-            children: tab.label()
-          }, tab.id))
-        }),
-        jsxs("div", {
           className: panelCss.panelContent,
-          children: [
-            activeTab === "skills" && jsx(SkillsTab, {
-              api,
-              onEdit: (skill) => {
-                controller.openEditor(skill);
-              }
-            }),
-            activeTab === "create" && jsx(CreateTab, { api }),
-            activeTab === "edit" && editing !== void 0 && jsx(EditTab, {
-              api,
-              skill: editing,
-              onDone: () => {
-                controller.closeEditor();
-              },
-              onCancel: () => {
-                controller.closeEditor();
-              }
-            })
-          ]
+          children: jsx(SkillsTab, {
+            api,
+            onEdit: (skill) => {
+              controller.openEditor(skill);
+            }
+          })
+        }),
+        editing !== void 0 && jsx(EditDialog, {
+          api,
+          skill: editing,
+          onDone: () => {
+            controller.closeEditor();
+          },
+          onCancel: () => {
+            controller.closeEditor();
+          }
         })
       ]
+    });
+  }
+  /** The edit sheet: the in-place editor, lifted off the list into a modal. */
+  function EditDialog({ api, skill, onDone, onCancel }) {
+    return jsx("div", {
+      className: panelCss.modal,
+      role: "dialog",
+      "aria-modal": "true",
+      "data-dsh-part": "edit-dialog",
+      children: jsxs("div", {
+        className: panelCss.modalCard,
+        children: [
+          jsx("h3", { className: panelCss.modalTitle, children: tt("tab.edit") }),
+          jsx(EditTab, {
+            api,
+            skill,
+            onDone,
+            onCancel
+          })
+        ]
+      })
     });
   }
   /** Row order among the shell's global panel rows (Plugins 0, Schedule 10, board 20). */

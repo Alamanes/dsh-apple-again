@@ -488,6 +488,24 @@ function dshuiComponent_quota(rt) {
   /** Labels that identify the account menu among the page's other menus. */
   const ACCOUNT_MENU_ITEMS = /^(退出登录|Sign out)$/
 
+  /**
+   * Rewrite one host row's visible label without dropping its glyph.
+   *
+   * The host renders each label as a text node beside an icon, so assigning
+   * `textContent` would erase the icon; only matching text nodes change.
+   * @param item - the row to retitle.
+   * @param pattern - the exact label to replace.
+   * @param replacement - the label to put in its place.
+   */
+  function retitleRow(item, pattern, replacement) {
+    const walker = document.createTreeWalker(item, NodeFilter.SHOW_TEXT)
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      const value = node.nodeValue
+      if (value === null || !pattern.test(value.trim())) continue
+      node.nodeValue = value.replace(value.trim(), replacement)
+    }
+  }
+
   /** Find the open account menu by its sign-out row. */
   function findAccountMenu() {
     for (const menu of document.querySelectorAll('[role="menu"]')) {
@@ -846,6 +864,9 @@ function dshuiComponent_quota(rt) {
         const wrap = item.parentElement
         if (wrap !== null) wrap.setAttribute('data-dsh-quota-hidden', '')
       }
+      // The host's row reads "自动化内容"; this menu says it shorter.
+      retitleRow(item, /^自动化内容$/, '自动化')
+      retitleRow(item, /^Automation content$/, 'Automation')
     }
     const settingsItem = items.find((item) => /^(设置|Settings)/.test((item.textContent ?? '').trim())) ?? items[0]
     // Rows live inside one wrapper each, and the wrapper is what the host lays
@@ -1022,10 +1043,15 @@ button:has(.ccq-navmark)>svg:first-child{display:none}
 
 /* --- account menu ------------------------------------------------------ */
 /* The host renders this menu; the attribute is set by enhanceAccountMenu. */
-/* Surface, radius and shadow stay the host's: its material layer carries the
-   exact fill for each theme, and replacing it shifts the menu's colour. */
-/* A fixed width keeps the panel rows from resizing the menu as they arrive. */
-[data-dsh-quota-menu]{width:236px;min-width:236px;max-width:236px}
+/* The host material is translucent and blurs the page behind it. This menu
+   takes an opaque fill instead, tinted a few percent with the theme's brand
+   colour so it still belongs to the palette without showing what is under it. */
+[data-dsh-quota-menu]{
+  width:236px;min-width:236px;max-width:236px;
+  background:color-mix(in srgb,var(--dshui-brand) 6%,var(--dshui-surface-base))!important;
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+}
 /* The host scales the menu in from a smaller box. This package's rows resize
    that box while the scale runs, which is the stutter: a plain fade shows the
    final layout only. */

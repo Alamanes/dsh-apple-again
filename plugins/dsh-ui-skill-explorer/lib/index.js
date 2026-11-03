@@ -190,11 +190,13 @@ function parseFrontmatter(content) {
       if (key === "name") out.name = text || void 0;
       else if (key === "description") out.description = text || void 0;
       else if (key === "whenToUse") out.whenToUse = text || void 0;
+      else if (key === "icon") out.icon = text || void 0;
       continue;
     }
     if (key === "name") out.name = unquote(rest);
     else if (key === "description") out.description = unquote(rest);
     else if (key === "whenToUse") out.whenToUse = unquote(rest);
+    else if (key === "icon") out.icon = unquote(rest);
     else if (key === "disable-model-invocation") out.disableModelInvocation = parseYamlBool(rest);
     else if (key === "user-invocable") out.userInvocable = parseYamlBool(rest);
     else if (key === "recordInput") out.recordInput = parseYamlBool(rest);
@@ -479,6 +481,7 @@ async function scanSkillRoot(root, level, into, workspaceInfo, skipSystem = fals
       name: parsed.name,
       description: parsed.description,
       whenToUse: parsed.whenToUse,
+      icon: parsed.icon,
       provider: "filesystem",
       level,
       path: file,
@@ -499,6 +502,7 @@ function serializeRegistry(skill) {
     name: skill.name,
     description: skill.description,
     whenToUse: skill.whenToUse,
+    icon: typeof skill.icon === "string" ? skill.icon : void 0,
     provider: skill.provider,
     level: REGISTRY_SOURCE_LEVEL.get(skill.source) ?? `other:${skill.source}`,
     path: void 0,
@@ -636,12 +640,13 @@ function yamlQuote(value) {
   return `'${value.replace(/'/g, "''")}'`;
 }
 /** Build the new skill file content (create route). */
-function buildSkillContent(name, description, whenToUse, content, disabled) {
+function buildSkillContent(name, description, whenToUse, content, disabled, icon) {
   const lines = [
     "---",
     `name: ${name}`,
     `description: ${yamlQuote(description.replace(/[\r\n]/gu, " "))}`
   ];
+  if (typeof icon === "string" && icon.trim() !== "") lines.push(`icon: ${yamlQuote(icon.trim())}`);
   if (typeof whenToUse === "string" && whenToUse.trim() !== "") lines.push(`whenToUse: ${yamlQuote(whenToUse.replace(/[\r\n]/gu, " "))}`);
   if (disabled === true) lines.push("disable-model-invocation: true");
   lines.push("---", "", content.trim(), "");
@@ -662,7 +667,13 @@ async function writeSkillFile(baseDir, name, description, whenToUse, content) {
 * carried over so an edit never silently re-enables a disabled skill.
 */
 async function overwriteSkillFile(path, name, description, whenToUse, content, disabled) {
-  await writeFile(path, buildSkillContent(name, description.trim(), whenToUse, content, disabled), "utf8");
+  let icon;
+  try {
+    icon = parseFrontmatter(readFileSync(path, "utf8")).icon;
+  } catch {
+    icon = void 0;
+  }
+  await writeFile(path, buildSkillContent(name, description.trim(), whenToUse, content, disabled, icon), "utf8");
   return path;
 }
 /** Move a skill file into its .trash sibling directory (recoverable delete). */
@@ -1092,6 +1103,7 @@ function makeRoutes(ctx, deps) {
             path: skill.path,
             description: frontmatter.description ?? skill.description,
             ...frontmatter.whenToUse === void 0 ? {} : { whenToUse: frontmatter.whenToUse },
+            ...frontmatter.icon === void 0 ? {} : { icon: frontmatter.icon },
             content: stripFrontmatter(raw).trim()
           });
         } catch (error) {

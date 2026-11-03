@@ -1,6 +1,6 @@
 {
   "name": "dsh-ui-quota",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "description": "更好的用户菜单：左下角账户菜单（含用量抽屉、峰谷提示、面板入口收集）与设置页「用量」。必须搭配 dsh-ui-suite 使用。",
   "icon": "./icon.png",
