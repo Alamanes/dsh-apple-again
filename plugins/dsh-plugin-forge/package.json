@@ -1,0 +1,36 @@
+{
+  "name": "@local/dsh-plugin-forge",
+  "version": "0.3.2",
+  "private": true,
+  "description": "Plugin authoring toolkit for DeepSeek Harness: runtime inspection, persistent plugin management, Cordis authoring skills, and self-diagnostics in one removable bundle.",
+  "type": "module",
+  "main": "./modules/debugging/lib/index.js",
+  "icon": "./icon.webp",
+  "exports": {
+    ".": "./modules/debugging/lib/index.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.webp",
+    "./client": "./modules/debugging/lib/client.js"
+  },
+  "files": [
+    "cordis.patch.yml",
+    "skills",
+    "modules",
+    "locale/*.json",
+    "icon.webp",
+    "README.md"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-plugin-manager"
+      ]
+    }
+  }
+}

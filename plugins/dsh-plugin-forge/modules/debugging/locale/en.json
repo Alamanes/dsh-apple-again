@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "DSH Plugin Debugging",
+    "description": "For DSH plugin development: runtime diagnostics and in-place fixes your agent can run itself."
+  }
+}

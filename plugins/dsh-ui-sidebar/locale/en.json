@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Sidebar quiet",
+    "description": "Removes the extra brand-row entries and repaints New Session as a quiet 32px row."
+  }
+}

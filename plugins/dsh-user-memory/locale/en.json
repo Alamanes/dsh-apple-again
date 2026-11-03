@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "User Memory",
+    "description": "One agent's long-term memory: Markdown entries frozen into each Session's prompt, tidied after every turn, and a panel to read or change it."
+  }
+}

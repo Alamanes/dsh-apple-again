@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Reasoning slider",
+    "description": "Replaces the reasoning-effort trigger in the model picker with a Codex-style slider."
+  }
+}

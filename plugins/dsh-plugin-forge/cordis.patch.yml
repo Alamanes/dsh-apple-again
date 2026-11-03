@@ -1,0 +1,27 @@
+# 大果的插件工坊 —— 一个包，三组能力
+#
+# 只新增宿主层的行，不覆盖、不修改任何预设。
+# 工具注册表是分层的：宿主层注册的工具会被每个会话继承，因此标准模式、
+# PTC 模式开会话时都能看到这些能力，不需要在 preset 里写任何东西。
+# 停用本 bundle 后这些行随之消失，profile 里不留残余配置。
+
+- insert:
+    # ── 工具包自身：创造模式里标准模式没有的三样 ─────────────────────
+    - id: plugin-forge-cordis-inspect
+      name: '@deepseek-ai/dsh-tool-cordis'
+
+    - id: plugin-forge-plugin-manager
+      name: '@deepseek-ai/dsh-plugin-manager/tools'
+
+    - id: plugin-forge-skills
+      name: '@deepseek-ai/dsh-skill-filesystem'
+      config:
+        customSkillDirs:
+          - !!js >-
+            process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@local/dsh-plugin-forge/package.json')), 'skills')
+
+    # ── 包内模块：运行时自检自修（拆自 dsh-plugin-debugging 0.7.1） ──
+    # 用它自己的包根加载，组件列表显示本包的「大果的插件工坊」而不是英文包名；
+    # 代码仍在 ./modules/debugging，入口由 exports["."] 指向。
+    - id: 'plugin-forge-debugging'
+      name: '@local/dsh-plugin-forge'

@@ -1,0 +1,62 @@
+{
+  "name": "dsh-ui-copy",
+  "version": "2.0.0",
+  "private": true,
+  "description": "空态大标题轮换、输入框空置提示改写与预览版徽章隐藏（dsh-ui-suite 组件）。",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "ui-suite",
+    "design-tokens",
+    "copy",
+    "i18n",
+    "hero",
+    "composer",
+    "motion",
+    "menu",
+    "sidebar",
+    "rebrand",
+    "openai",
+    "ask-user-question"
+  ],
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./locale/*.json": {
+      "default": "./locale/*.json"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "scripts",
+    "locale",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/build.mjs --check"
+  },
+  "engines": {
+    "node": ">=18",
+    "dsh": ">=0.2.0-rc.2 <0.3.0-0"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  },
+  "license": "MIT"
+}

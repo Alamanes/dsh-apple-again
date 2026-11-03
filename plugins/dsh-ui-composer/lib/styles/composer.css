@@ -1,0 +1,269 @@
+/* ==========================================================================
+   dsh-ui-copy — the composer card component
+   --------------------------------------------------------------------------
+   The Codex-style input card applied to the composer seat: the card surface,
+   its editor, the round send button, the add control and the usage figures.
+
+   The host half inlines this sheet into every index response, so editing it and
+   reloading the page is enough: no rebuild, no restart, no stale stylesheet.
+
+   Scope
+     Every rule is rooted at [data-composer-card] or [data-composer-seat] — the
+     attributes @deepseek-ai/dsh-client-ui-conversation writes on its own
+     composer elements — so nothing outside the composer is touched. The
+     CSS-module locals that appear beside them are fallbacks for the occurrences
+     the attributes do not reach; each one pairs a `$="_x"` form with `*="_x "`
+     because a module local may be followed by another class.
+
+   Tokens
+     This sheet is wired into the suite token layer. Both themes are published
+     as `--dsh-ui-copy-card-*` on the scope roots and consumed below, and every
+     one of those slots now reads a `--dshui-*` token from
+     lib/styles/tokens.css: the raised card surface, its hairline edge, the
+     muted figure ink, the send fill with its idle stand-in, and the card's own
+     shadow. Light and dark are the token layer's job, so this file no longer
+     carries a palette of its own.
+
+   Why !important
+     This sheet is inlined before the component stylesheets, which are CSS
+     modules injected at runtime and would otherwise win at equal specificity.
+     Token declarations need none — specificity already decides — but every
+     direct property override carries one.
+
+   Maintenance
+     data-composer-card / data-composer-seat / data-composer-stats are harness
+     attributes. `_card`, `_cardWorkspaceTrigger`, `_dock`, `_primary`, `_add`,
+     `_anchor`, `_pill` and `_label` are CSS-module locals of the composer; a
+     harness upgrade may rehash them, and the attribute selectors keep the card
+     itself styled when that happens.
+   ========================================================================== */
+
+[data-composer-card],
+[data-composer-seat] {
+  --dsh-ui-copy-card-surface: var(--dshui-surface-2);
+  --dsh-ui-copy-card-edge: var(--dshui-border-2);
+  --dsh-ui-copy-card-ink: var(--dshui-text-primary);
+  --dsh-ui-copy-card-muted: var(--dshui-text-tertiary);
+  --dsh-ui-copy-card-shadow: var(--dshui-shadow-1);
+  --dsh-ui-copy-send-fill: var(--dshui-brand-fill);
+  --dsh-ui-copy-send-ink: var(--dshui-brand-ink);
+  --dsh-ui-copy-send-idle: var(--dshui-surface-3);
+  --dsh-ui-copy-send-idle-ink: var(--dshui-text-tertiary);
+  --dsh-ui-copy-dock-surface: var(--dshui-surface-dock);
+}
+
+/* --------------------------------------------------------------------------
+   Card width
+   The composer reads these two length tokens; the card stays where the native
+   layout puts it and only its measure changes.
+   -------------------------------------------------------------------------- */
+
+[class*="_body"]:has([data-composer-seat]) {
+  --dsh-composer-card-max-width: 720px;
+  --dsh-composer-side-clearance: 20px;
+}
+
+/* --------------------------------------------------------------------------
+   Card surface
+   -------------------------------------------------------------------------- */
+
+[data-composer-card],
+[class$="_card"]:has([contenteditable]),
+[class*="_card "]:has([contenteditable]),
+[class$="_cardWorkspaceTrigger"],
+[class*="_cardWorkspaceTrigger "] {
+  position: relative !important;
+  background: var(--dsh-ui-copy-card-surface) !important;
+  border: var(--dshui-border-width-strong) solid var(--dsh-ui-copy-card-edge) !important;
+  border-radius: var(--dshui-radius-xl) !important;
+  box-shadow: var(--dsh-ui-copy-card-shadow, var(--dshui-shadow-1)) !important;
+  padding-top: var(--dshui-space-4) !important;
+}
+
+[class$="_cardWorkspaceTrigger"]::after,
+[class*="_cardWorkspaceTrigger "]::after {
+  border: 0 !important;
+}
+
+[data-composer-card] {
+  padding-top: var(--dshui-space-3) !important;
+  gap: var(--dshui-space-4) !important;
+  font-size: var(--dshui-text-size-lg) !important;
+  line-height: var(--dshui-line-normal) !important;
+}
+
+/* --------------------------------------------------------------------------
+   Editor
+   -------------------------------------------------------------------------- */
+
+[data-composer-card] [contenteditable] {
+  min-height: 42px;
+  font-size: var(--dshui-text-size-lg);
+  line-height: var(--dshui-line-normal);
+  caret-color: var(--dsh-ui-copy-card-ink);
+}
+
+[class*="_composerHero"] [data-composer-card] [contenteditable] {
+  min-height: 46px;
+}
+
+/* Placeholder ink: only the hint bubble. The editable surface carries the same
+   attribute as React's copy of the sentence, so colouring it would grey out
+   whatever the user has typed. */
+[data-composer-card] [data-composer-placeholder] {
+  color: var(--dsh-ui-copy-card-muted) !important;
+}
+
+/* --------------------------------------------------------------------------
+   Send button
+   -------------------------------------------------------------------------- */
+
+[data-composer-card] :is([class$="_primary"], [class*="_primary "]) {
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  padding: var(--dshui-space-3) !important;
+  border: 0 !important;
+  border-radius: var(--dshui-radius-circle) !important;
+  background: var(--dsh-ui-copy-send-fill) !important;
+  color: var(--dsh-ui-copy-send-ink) !important;
+  box-shadow: none !important;
+}
+
+[data-composer-card] :is([class$="_primary"], [class*="_primary "]) svg {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+[data-composer-card] :is([class$="_primary"], [class*="_primary "]):disabled {
+  background: var(--dsh-ui-copy-send-idle) !important;
+  opacity: 1 !important;
+  color: var(--dsh-ui-copy-send-idle-ink) !important;
+}
+
+/* --------------------------------------------------------------------------
+   Add control: a bare glyph, with no button chrome of its own.
+   -------------------------------------------------------------------------- */
+
+:is([data-composer-card], [data-composer-seat]) button:is(
+  [aria-label="添加"], [aria-label="添加文件"], [aria-label="添加附件"], [aria-label="添加图片"],
+  [aria-label="Add"], [aria-label="Add files"], [aria-label="Add attachment"]
+),
+:is([data-composer-card], [data-composer-seat]) button:is([class$="_add"], [class*="_add "]) {
+  background: transparent !important;
+  box-shadow: none !important;
+  border-color: transparent !important;
+}
+
+/* --------------------------------------------------------------------------
+   Workspace peninsula
+   The blank-session seat's workspace row hangs off the card's bottom edge: as
+   wide as the card less 34px a side, squared where the two meet, rounded below,
+   and moved after the card in flow order so the pair reads as one shape. Only
+   the hero seat renders that row, which is the only place the reference shows it
+   either. The surface is the page's own blue one step lighter than the card,
+   never the warm neutral a grey sunken fill used to read as next to it.
+   -------------------------------------------------------------------------- */
+
+[class*="_composerHero"] {
+  gap: 0 !important;
+  --dsh-ui-copy-hero-lead: var(--dshui-space-4);
+  /* The seat is centred vertically, so the lead below would lift the headline
+     by half its height. This equal top padding keeps the headline where it was
+     and leaves the card and its peninsula as the only things that move. */
+  padding-top: var(--dsh-ui-copy-hero-lead) !important;
+}
+
+/* Air between the blank-session headline and the card, so the headline no
+   longer rests straight on the card's top edge. */
+[class*="_composerHero"] > :has([class*="titleGroup"]) {
+  margin-bottom: var(--dsh-ui-copy-hero-lead) !important;
+}
+
+[class*="_composerHero"] [class*="_heroWorkspaceRow"] {
+  box-sizing: border-box !important;
+  position: relative !important;
+  z-index: 0 !important;
+  order: 1 !important;
+  width: calc(100% - 68px) !important;
+  align-self: center !important;
+  margin: 0 34px !important;
+  padding: var(--dshui-space-2) var(--dshui-space-5) !important;
+  min-height: 38px !important;
+  border-radius: 0 0 var(--dshui-radius-lg) var(--dshui-radius-lg) !important;
+  background: var(--dsh-ui-copy-dock-surface) !important;
+}
+
+/* --------------------------------------------------------------------------
+   Usage figures
+   Keep the native numbers in flow at narrow widths and high display scaling.
+   -------------------------------------------------------------------------- */
+
+[data-composer-seat] :is([class$="_dock"], [class*="_dock "]):has([data-composer-stats]) {
+  box-sizing: border-box !important;
+  flex: none !important;
+  flex-wrap: wrap !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  height: auto !important;
+  gap: var(--dshui-space-2) var(--dshui-space-4) !important;
+  padding: var(--dshui-space-2) 0 var(--dshui-space-1) !important;
+  overflow: visible !important;
+}
+
+[data-composer-stats] {
+  flex: 0 1 auto !important;
+  flex-wrap: wrap !important;
+  justify-content: center !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  height: auto !important;
+  gap: var(--dshui-space-2) var(--dshui-space-4) !important;
+  overflow: visible !important;
+  color: var(--dsh-ui-copy-card-muted);
+  font-size: var(--dshui-text-size-sm);
+  line-height: 20px;
+}
+
+[data-composer-stats] :is([class$="_anchor"], [class*="_anchor "]) {
+  max-width: 100% !important;
+  min-width: 0 !important;
+  flex: 0 1 auto !important;
+}
+
+[data-composer-stats] :is([class$="_pill"], [class*="_pill "]) {
+  max-width: 100% !important;
+  min-width: 0 !important;
+  height: auto !important;
+  white-space: normal !important;
+  text-align: left !important;
+  color: var(--dsh-ui-copy-card-muted);
+}
+
+[data-composer-stats] :is([class$="_label"], [class*="_label "]) {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  overflow-wrap: anywhere;
+}
+
+/* --------------------------------------------------------------------------
+   Token notes
+   · The single `[data-composer-card], [data-composer-seat]` block now publishes
+     the palette for both themes, because every slot resolves a token that is
+     already theme-aware. The former `body:not([data-ds-dark-theme])` override
+     became redundant and is gone.
+   · The card surface folded from the wallpaper's blue-cast light/dark pair into
+     --dshui-surface-2 (the layer-2 card role in both themes).
+   · The send fill folded from the light blue / dark white pair into
+     --dshui-brand-fill, and its ink from the matching light/dark pair into
+     --dshui-brand-ink.
+   · The dock peninsula reads --dshui-surface-dock: one step lighter than the
+     card and carrying the page's blue, because the grey sunken fill it used
+     before read as a warm strip beside the card.
+   · 10px, 5px, 14px, 10px and 2px paddings folded onto the nearest space step
+     (4/8/12/6 slots); the card's rounding stays 22px via
+     --dshui-radius-xl, which happens to be exactly 22px.
+   · 20px line-heights stay literal: they pin the usage figures' row height,
+     and the unitless line scale cannot express a px box.
+   -------------------------------------------------------------------------- */

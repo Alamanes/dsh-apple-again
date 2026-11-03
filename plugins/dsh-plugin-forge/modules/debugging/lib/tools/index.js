@@ -1,0 +1,145 @@
+/**
+ * 工具半边 —— 注册**只读**诊断工具、一个写侧工具、一个派生工具、一个行动类工具。
+ *
+ * **契约（G2 冻结，改它要同时改 `src/contracts.ts` 与技能半边）**
+ * - 只导出 `registerTools(ctx, state)`；
+ * - 只碰 `ctx.tools`（`ctx.skills` 归技能半边）；不 import `src/skills/**`；
+ * - **容忍缺失**：`ctx.tools` 不在时直接返回，不抛（宿主缺服务时插件不该炸）；
+ * - 每个工具**一个文件**（组织既有范式，见 `dsh-zhihu-search/src/tools/`）；
+ * - 每个工具的 `execute` **绝不 throw**：预期内失败一律返回结构化
+ *   `{ ok: false, error: { kind, message, hint } }`，`kind` 是闭枚举（决定模型该不该重试）；
+ * - `exec.signal` 必须透传给底层 fetch / spawn。
+ *
+ * **工具清单**（决策 D4/D5；命名取 03 那套）
+ * | 工具 | 半边 | 对应 SKILL.md |
+ * |---|---|---|
+ * | `dsh_check_effect_mode` | 只读 | §一 生效三档 |
+ * | `dsh_diagnose_plugin_load` | 只读 | §3.1 / §3.2 / §3.8 |
+ * | `dsh_check_auth` | 只读 | §3.3 / §3.4 |
+ * | `dsh_dump_config` | 只读 | §3.8 |
+ * | `dsh_list_instances` | 只读 | 跨实例（D′）—— 发现本机活着的 DSH |
+ * | `dsh_hot_reload` | **写侧** | 生效三档（换模块） |
+ * | `dsh_sign_cookie` | **派生**（唯一经手秘密） | §3.4 |
+ * | `dsh_restart` | **行动**（不可逆；唯一会退出宿主） | §一 生效三档（`restart-required` 那一路） |
+ *
+ * **只读纪律**：不杀进程、不改 profile、不写 `$DSH_HOME`。
+ * 进程与端口一律**按端口**查（`lib/ports.ts`），不用命令行子串 —— 子串会误匹配派生 shell。
+ */
+// `existsSync` 在这里出现是**装配点**：`dsh_restart` 需要一个「探路径在不在」的谓词来判
+// `wscript.exe`（隐藏启动器）在不在，而那是**平台相关**的 —— 由装配处注入，工具与库两边
+// 都不碰 `node:fs`（库半边无 IO 是 B10 那族红线守着的）。
+import { existsSync } from 'node:fs';
+import { readLoaderEntries, loaderFrom } from '../lib/loader.js';
+import { reloadHostFrom } from '../lib/hot-reload.js';
+import { listeningPortOf } from '../lib/stop-url.js';
+import { createCheckAuthTool } from './dsh_check_auth.js';
+import { createDiagnosePluginLoadTool } from './dsh_diagnose_plugin_load.js';
+import { createDumpConfigTool } from './dsh_dump_config.js';
+import { createEffectModeTool } from './dsh_check_effect_mode.js';
+import { createHotReloadTool } from './dsh_hot_reload.js';
+import { createListInstancesTool } from './dsh_list_instances.js';
+import { createRestartTool, restartHostFrom } from './dsh_restart.js';
+import { createSignCookieTool } from './dsh_sign_cookie.js';
+import { createToolDeps } from './shared.js';
+/**
+ * 聚合注册入口。
+ *
+ * @param ctx 宿主上下文；`ctx.tools` 是唯一允许触碰的服务。
+ * @param state 配置 + 技能半边的结果（工具可以据此在输出里提示技能没生效）。
+ */
+export function registerTools(ctx, state) {
+    if (ctx.tools === undefined)
+        return;
+    // Loader 观测的**唯一一处**绑定：把活着的 `ctx` 收成一个只读闭包。
+    // 闭包在每次调用时重新读树（宿主自己也是「每次调用直接读，不另建缓存」——
+    // `dsh-host-plugin-inventory\lib\index.js:100-114` 的注释就是这个理由），
+    // 所以热重载后的相位变化不会因为我们缓存而失真。
+    //
+    // 载体（`state.carrier`）同样在这一处进 `deps`：它是 `apply()` 探过**一次**的进程级事实，
+    // 六个工具读同一份 —— 各读各的会出现「同一进程里两处判断不一致」，而没有判据照得到那种错。
+    const deps = createToolDeps(state.config, {
+        loader: () => readLoaderEntries(loaderFrom(ctx)),
+        carrier: state.carrier,
+        // 端口的第一条**进程内**线索：宿主实际监听的端口。
+        //
+        // 为什么是闭包：`webServer` 在 `listen` 绑定之前 `port` 是 undefined，而本插件
+        // `apply` 早于绑定 ⇒ 只能「用的时候现取」。这与上面 loader 那条同一个理由，
+        // 也是本仓在 restart-recovery 上吃过的亏（服务不能提前取一次存起来）。
+        //
+        // 为什么用可选服务：`webServer` 只在 web 载体上存在。写成 `inject` 会让 CLI /
+        // 桌面载体把整插件挂成静默 PENDING（`src/AGENTS.md` 的 inject 纪律）。
+        hostPort: () => webServerPortOf(ctx),
+    });
+    const factories = [
+        createEffectModeTool,
+        createDiagnosePluginLoadTool,
+        createCheckAuthTool,
+        createDumpConfigTool,
+        // 发现工具（D′ 第①块）：列本机活着的 DSH。它也是只读的（读 socket 表 + 发一次
+        // 未认证 `GET /`），与上面四个共用同一份 `deps`。
+        createListInstancesTool,
+    ];
+    for (const create of factories) {
+        ctx.tools.register(create(deps));
+    }
+    // 写侧工具（v1.1）：**唯一**一个会改运行中树的工具。
+    // 它比只读工具多要一个宿主端口（`reload`），所以单独构造 —— `deps` 那份
+    // 是四个只读工具共享的冻结形状，不为写侧破例。
+    ctx.tools.register(createHotReloadTool({ ...deps, reload: reloadHostFrom(ctx) }));
+    // 派生类工具（`dsh_sign_cookie`）：**唯一**一个会经手秘密的工具。
+    //
+    // 它仍然**不写**任何东西（只读一份文件 + 内存里算 HMAC），所以共用 `deps` 那份冻结形状；
+    // 它与「派生」的区分不是「会不会改状态」，而是「返回值里有没有秘密」—— 见
+    // `dsh_sign_cookie.ts` 文件头第 2 条：cookie 本体刻意不进 `data` 也不进 `audit`
+    // （`audit` 会被 spill 落盘）。
+    ctx.tools.register(createSignCookieTool(deps));
+    // 行动类工具（`dsh_restart`）：**唯一会退出宿主**的那一个，也是本仓唯一的不可逆动作。
+    //
+    // 它比写侧多要四个宿主面（四道闸的取数、审批档、计划任务拉起、`appExit`），
+    // 所以单独装配一处（`restartHostFrom`）—— `deps` 那份是只读工具共享的冻结形状，
+    // 不为行动类破例（与 `dsh_hot_reload` 同一个范式）。
+    //
+    // ⚠️ **载体是显式传进去的**（不让 `restartHostFrom` 自己再探一次）：闸④的结论全靠它，
+    // 而「同一进程里两处对载体的判断不一致」是没有任何判据照得到的那种错。
+    //
+    // ⚠️ 装配发生在 apply 期，但 `restartHostFrom` **不在这里取任何服务**：
+    // `ctx.get('fs')` 在 apply 期是 `undefined`（`task-31` 实测，+1s 才有），
+    // 所以那个适配器每次读写时各自现取一次，本处只绑 ctx 与配置。
+    ctx.tools.register(createRestartTool({
+        ...deps,
+        restart: restartHostFrom(ctx, state.config, state.carrier, deps.spawn, existsSync),
+    }));
+}
+/**
+ * 读宿主**实际监听的端口**（`ctx.webServer.port`）；取不到 ⇒ `undefined`。
+ *
+ * ## 为什么需要它（2026-10-17 修的根）
+ *
+ * 本仓原先假定「宿主会把地址放进 `DSH_WEB_URL` 环境变量」，于是 `resolvePort` 的第三条
+ * 来源读 `process.env`。**那条假设是错的**：`DSH_WEB_URL` 由 `dsh-web-app` 注册进
+ * `shellEnv`，只注入到宿主**派生的子进程**，宿主自己的 `process.env` 从来没有它。
+ * ⇒ 那条来源在宿主进程内**永不命中**，于是没配 `port` 的机器上 `dsh_check_auth` /
+ * `dsh_sign_cookie` / `dsh_restart` 全都定不出端口（前者还建议你去设那个变量 —— 死路）。
+ *
+ * 权威来源就在进程内：`@deepseek-ai/dsh-host-webserver` 的 `WebServer` 服务，
+ * `get port()` 的注释是「the listening port (the OS-assigned value when config.port
+ * is 0), or undefined before listen binds」—— 与 `--public-url` 无关，
+ * `config.port = 0` 那种「让 OS 挑」的情形也会回填真实值。
+ *
+ * ## 三值纪律
+ *
+ * 返回三态而不是布尔：服务不在场（非 web 载体）/ 服务在但还没绑定 / 有端口。
+ * 前两者都返回 `undefined`，由 `resolvePort` 继续往下一条来源走，**不在这里猜**。
+ *
+ * ## 实现住在 `lib/stop-url.ts`（一处一事实）
+ *
+ * 启动期的「发布停止窗口地址」也要读同一格端口，那份逻辑不在工具层。所以真正的实现
+ * 搬到 `listeningPortOf`，本处只做转发 —— 两份实现迟早会漂（例如一边认 `> 0`、
+ * 另一边认 `>= 0`），而那种漂移没有任何判据照得到。
+ *
+ * @param ctx 宿主上下文。
+ */
+function webServerPortOf(ctx) {
+    return listeningPortOf(ctx);
+}
+//# sourceMappingURL=index.js.map

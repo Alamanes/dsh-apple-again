@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "DSH 插件排障",
+    "description": "面向 DSH 插件开发：运行时诊断 + 就地修复，Agent 自己就能跑。"
+  }
+}

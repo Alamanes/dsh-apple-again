@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Plugin Forge",
+    "description": "Creator-mode plugin authoring in any session: runtime API inspection, persistent plugin management, and Cordis authoring skills, without touching any preset."
+  }
+}
