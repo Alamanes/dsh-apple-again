@@ -4,17 +4,25 @@
 本仓库只收录发布形态：构建后的 `lib/`、`locale` 资源、图标、`cordis.patch.yml` 与包清单，
 不含 `node_modules`、构建脚本缓存与源工程标的物。
 
+<p align="center">
+  <a href="./plugins/dsh-ui-suite/"><img src="./plugins/dsh-ui-suite/icon.png" width="76" alt="界面套件"></a>
+  <a href="./plugins/dsh-ui-quota/"><img src="./plugins/dsh-ui-quota/icon.png" width="76" alt="更好的用户菜单"></a>
+  <a href="./plugins/dsh-sidebar-memo/"><img src="./plugins/dsh-sidebar-memo/icon.png" width="76" alt="备忘录"></a>
+  <a href="./plugins/dsh-user-memory/"><img src="./plugins/dsh-user-memory/icon.png" width="76" alt="用户记忆"></a>
+  <a href="./plugins/dsh-plugin-forge/"><img src="./plugins/dsh-plugin-forge/icon.webp" width="76" alt="插件工坊"></a>
+</p>
+
 ## 组成
 
 插件分两层组织。基础层定义页面结构；应用层在基础层的呈现规则上提供功能。
 
-| 层 | 包 | 版本 | 职责 |
-|---|---|---|---|
-| 基础层 | `dsh-ui-suite` | 2.0.1 | `--dshui-*` 设计令牌层与十六个界面组件 |
-| 应用层 | `dsh-ui-quota` | 2.1.0 | 左下角用户菜单与设置页「用量」 |
-| 应用层 | `dsh-sidebar-memo` | 0.1.0 | 右侧边栏的清单、目标、计划与日记 |
-| 应用层 | `dsh-user-memory` | 0.1.0 | 单 Agent 长期记忆与侧栏记忆面板 |
-| 工具 | `dsh-plugin-forge` | 0.3.2 | 运行时 API 查询、插件管理与 Cordis 撰写技能 |
+| 图标 | 层 | 包 | 版本 | 职责 |
+|---|---|---|---|---|
+| <img src="./plugins/dsh-ui-suite/icon.png" height="32" alt=""> | 基础层 | `dsh-ui-suite` | 2.0.1 | `--dshui-*` 设计令牌层与十六个界面组件 |
+| <img src="./plugins/dsh-ui-quota/icon.png" height="32" alt=""> | 应用层 | `dsh-ui-quota` | 2.1.0 | 左下角用户菜单与设置页「用量」 |
+| <img src="./plugins/dsh-sidebar-memo/icon.png" height="32" alt=""> | 应用层 | `dsh-sidebar-memo` | 0.1.0 | 右侧边栏的清单、目标、计划与日记 |
+| <img src="./plugins/dsh-user-memory/icon.png" height="32" alt=""> | 应用层 | `dsh-user-memory` | 0.1.0 | 单 Agent 长期记忆与侧栏记忆面板 |
+| <img src="./plugins/dsh-plugin-forge/icon.webp" height="32" alt=""> | 工具 | `dsh-plugin-forge` | 0.3.2 | 运行时 API 查询、插件管理与 Cordis 撰写技能 |
 
 ## 依赖关系
 
