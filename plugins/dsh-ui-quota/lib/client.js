@@ -1023,12 +1023,13 @@ function dshuiComponent_quota(rt) {
   }
 
   /**
-   * Settings nav mark, and the built-in fallback it has to displace.
+   * Nav mark for hosts that predate `settings.section.icon`.
    *
-   * The settings nav renders `navIcon(id)` from a hard-coded table of built-in
-   * ids before the label, so a plugin has no `icon` option and gets the fallback
-   * gear. The label is a React child, which is the one channel a plugin has for
-   * its own mark: the node below carries our icon and this sheet hides the gear.
+   * Those shells paint `navIcon(id)` from a hard-coded table of built-in ids
+   * and fall back to the settings gear, so the gear has to be displaced from
+   * the stylesheet: the label node carries our bars and the rule below hides
+   * the gear that sits beside them. Hosts that declare the icon slot paint the
+   * bars inside the shell's own wrapper and this label stays plain text.
    */
   const CSS = `
 /* One motion contract for this package: a soft deceleration for anything that
@@ -1303,6 +1304,14 @@ button:has(.ccq-navmark)>svg:first-child{display:none}
    * language switch.
    */
   let sectionT = (key) => key
+
+  /**
+   * Whether the host paints the nav glyph from `settings.section.icon`.
+   *
+   * Set by that slot's inject, which only runs on a host that declares the
+   * slot. Until then the label carries the mark itself; see install().
+   */
+  let hostOwnsNavIcon = false
 
   /** The settings nav mark for the usage page: three rising bars. */
   function CcqUsageMark({ size = 16 }) {
@@ -1700,17 +1709,30 @@ button:has(.ccq-navmark)>svg:first-child{display:none}
       // (10). The host's account section stays hidden from the rail by
       // `hideAccountNav`, so the rail starts with General and then this page.
       //
-      // The nav row renders `navIcon(id)` first and the label after it, and the
-      // icon lookup is a hard-coded table that only knows the built-in ids — a
-      // plugin has no `icon` option and gets the fallback gear. The label,
-      // however, is rendered as a React child, so it is the one channel a plugin
-      // has for its own mark: the node below carries our icon, and the stylesheet
-      // hides the gear.
+      // The rail paints a decorative icon wrapper before the label, filled from
+      // a table that only knows the built-in section ids. A section id outside
+      // that table used to read as the settings gear, which is why this page
+      // showed a cog beside its own bars. `settings.section.icon` is the channel
+      // for a section's own glyph: the shell paints the contribution whose id
+      // matches the row and the label stays plain text. Hosts from before that
+      // slot never call the inject, so the page keeps the inline mark and the
+      // stylesheet rule that hides the gear.
+      const SECTION_ID = 'commandcode-quota'
+      scope.slots.inject('settings.section.icon', () => {
+        hostOwnsNavIcon = true
+        return scope.slots.register({
+          name: 'settings.section.icon',
+          id: SECTION_ID,
+          order: 5,
+        }, ({ size }) => h(CcqUsageMark, { size: size ?? 16 }))
+      })
       scope.slots.inject('settings.section', () => scope.slots.register({
         name: 'settings.section',
-        id: 'commandcode-quota',
+        id: SECTION_ID,
         order: 5,
-        label: () => h('span', { className: 'ccq-navmark' }, h(CcqUsageMark, { size: 16 }), t('nav')),
+        label: () => (hostOwnsNavIcon
+          ? t('nav')
+          : h('span', { className: 'ccq-navmark' }, h(CcqUsageMark, { size: 16 }), t('nav'))),
         locale: NS,
         inject: () => ({
           fetchQuota: (signal) => scope.connection.rpc.call(CHANNEL, ENDPOINT, {}, signal),
