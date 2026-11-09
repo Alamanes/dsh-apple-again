@@ -202,3 +202,50 @@ SOFTWARE.
 
 - `plugins/dsh-sidebar-memo/LICENSE`
 - `plugins/dsh-plugin-forge/modules/debugging/LICENSE`（MIT，Copyright (c) 2026 Zayn，来自 `dsh-plugin-debugging@0.7.1`）
+
+## 3. dsh-ui-ptc（内置 dsh-ops）
+
+- 上游：`dsh-ops@0.3.1`（npm；源码仓库 T-Auto/dsh-ops）
+- 协议：MIT AND Apache-2.0（插件本体 MIT，随包的 FastCtx 为 Apache-2.0）
+- 版权：Copyright (c) 2026 T-Auto and the dsh-ops contributors
+- 使用范围：完整拷贝到 `plugins/dsh-ui-ptc/vendor/dsh-ops/`，含 `lib/`、`runtime/darwin-arm64/`、`bin/`、
+  `locale/`、`cordis.patch.yml`、`package.json`、`icon.png`、`LICENSE`、`NOTICE`、`PROVENANCE.md`。
+  代码与上游配置未作改动；外层 `package.json` 的 `exports` 与 `cordis.patch.yml` 的包名改为
+  `dsh-ui-ptc/ops/*`，组件行 id 仍是 `dsh-ops-*`。原生工作进程随包携带，运行期依赖
+  `@fastctx/darwin-arm64`。
+
+```text
+MIT License
+
+Copyright (c) 2026 T-Auto and the dsh-ops contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-------------------------------------------------------------------------------
+
+This MIT license covers the dsh-ops plugin: everything in this repository
+except `vendor/fastctx/`, which is FastCtx under the Apache License 2.0. The
+distribution as a whole is therefore licensed under the composite
+`MIT AND Apache-2.0`. See `NOTICE` for the full statement and the attribution
+FastCtx requires, and `vendor/fastctx/LICENSE-APACHE` for the Apache License
+2.0 text.
+```
+
+FastCtx 的 Apache-2.0 归属声明与完整 NOTICE 原文随包保留在
+`plugins/dsh-ui-ptc/vendor/dsh-ops/NOTICE`，分发时不得删除。

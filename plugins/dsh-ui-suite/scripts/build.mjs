@@ -46,6 +46,8 @@ const JS_PACKAGES = {
   'dsh-ui-chat-fold': 'chat-fold',
   'dsh-ui-chat-motion': 'chat-motion',
   'dsh-ui-chat-diff': 'chat-diff',
+  'dsh-ui-pet': 'pet',
+  'dsh-ui-ptc': 'ptc',
 }
 
 /** `dsh-ui-session-delete` -> `SESSION_DELETE`, the injected global's suffix. */
