@@ -86,14 +86,17 @@ export function createMemory({ root, warn = () => {} }) {
     return run
   }
 
-  const checkSize = (file, next) => {
+  // Limits advise, they never block: an overflowing write still lands, so a turn
+  // never stalls on bookkeeping. The note rides back on the write itself and
+  // demands the cleanup before anything else is added.
+  const overLimit = (file, next) => {
     const limit = limitOf(file)
-    // A file already past its limit (edited by hand) may still shrink.
-    if (next.length <= limit || next.length <= file.content.length) return
-    throw new Error(file.topic === undefined
-      ? 'MEMORY.md would have ' + next.length + ' of its ' + limit + ' characters. Move details into a topic (remember with topic), merge entries with replace, or forget what no longer matters.'
-      : 'The topic [[' + file.topic + ']] would have ' + next.length + ' of its ' + limit + ' characters. Put the rest in another topic, or forget old entries.')
+    if (next.length <= limit) return undefined
+    return { file, size: next.length, limit }
   }
+  const overflowNote = (over) => '⚠ ' + (over.file.topic === undefined ? MAIN : '[[' + over.file.topic + ']]') +
+    ' 已 ' + over.size + '/' + over.limit + ' 字符（超出 ' + (over.size - over.limit) + '）。' +
+    '你必须立刻清理：合并重复条目、把细节移进主题、forget 不再成立的条目；清理完成前不许再新增条目。'
   const sizeNote = (file, size) => file.file + ': ' + size + ' of ' + limitOf(file) + ' characters'
   const allEntries = files => files.flatMap(file => file.entries.map(entry => ({ ...entry, file })))
 
@@ -120,17 +123,19 @@ export function createMemory({ root, warn = () => {} }) {
       const base = target.lines.length > 0 ? target.lines : parseMemory(target === main ? EMPTY_MAIN : '# ' + topic + '\n').lines
       const line = formatEntry(text, meta)
       const next = joinLines(insertEntry(base, line))
-      checkSize(target, next)
+      const over = overLimit(target, next)
       let index
+      let overIndex
       if (topic !== undefined && !main.links.includes(topic)) {
         index = joinLines(addLink(main.lines.length > 0 ? main.lines : parseMemory(EMPTY_MAIN).lines, topic))
-        checkSize(main, index)
+        overIndex = overLimit(main, index)
       }
       await writeText(target.path, next)
       if (index !== undefined) await writeText(main.path, index)
       await journal({ op: 'add', file: target.file, after: line })
       const where = topic === undefined ? MAIN : fresh ? 'the new topic [[' + topic + ']], linked from MEMORY.md' : 'topic [[' + topic + ']]'
-      return { changed: true, file: target, message: 'Saved, in ' + where + ' (' + sizeNote(target, next.length) + ').' }
+      const notes = [over, overIndex].filter(Boolean).map(over => '\n' + overflowNote(over)).join('')
+      return { changed: true, file: target, message: 'Saved, in ' + where + ' (' + sizeNote(target, next.length) + ').' + notes }
     })
   }
 
@@ -153,10 +158,10 @@ export function createMemory({ root, warn = () => {} }) {
       const before = lines[old.line]
       lines[old.line] = line
       const next = joinLines(lines)
-      checkSize(old.file, next)
+      const over = overLimit(old.file, next)
       await writeText(old.file.path, next)
       await journal({ op: 'replace', file: old.file.file, before, after: line })
-      return { changed: true, file: old.file, message: 'Updated (' + fileName(old.file) + '): "' + old.text + '" is now "' + text + '".' }
+      return { changed: true, file: old.file, message: 'Updated (' + fileName(old.file) + '): "' + old.text + '" is now "' + text + '".' + (over ? '\n' + overflowNote(over) : '') }
     })
   }
 
@@ -272,7 +277,7 @@ export function createMemory({ root, warn = () => {} }) {
     removeEntry,
     findOne,
     entryProblem,
-    checkSize,
+    overLimit,
     sizeNote,
     journal,
     readText,

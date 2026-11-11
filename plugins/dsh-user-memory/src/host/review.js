@@ -42,6 +42,7 @@ const reviewSystem = () => [
   '正例：「她叫小析」「她吃素」「她的博客用 Astro，部署在 GitHub Pages」「被说胖会不高兴」「她讨厌弹窗式确认」。',
   '反例：「某插件要 rsync 到 node_modules」「DSH 更新要求 Host 10 秒内退出」「某仓库在 Desktop/Code 下」「这个项目只有一个 Agent」。',
   '用户说某条变了或不再成立，就用 edit 改它；对话证明某条错了或只适用于某个任务，就用 remove 删它。永远不要新增一条与已有条目矛盾的记忆。',
+  'MEMORY.md 一旦超过字符上限，这一轮只许清理：合并重复条目、把细节移进 topic、删掉不再成立的条目，清理完成前不许新增。',
   '每条改动是下面之一：',
   '  {"op": "add", "text": "…"}',
   '  {"op": "add", "text": "…", "topic": "travel"}  只给一部分话题用的细节，或 MEMORY.md 快满时用；topic 是短名字',
