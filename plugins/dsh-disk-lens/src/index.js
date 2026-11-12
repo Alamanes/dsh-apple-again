@@ -277,6 +277,41 @@ export function apply(ctx, config) {
 
   ctx.inject(['webServer'], (scope) => {
     const routes = [
+      get('/chat/state', async () => {
+        const agents = ctx.get('agents')
+        if (!agents) return { messages: [], running: false, error: 'agents service missing' }
+        const roots = agents.roots()
+        const agent = roots.find((item) => item.status === 'running') ?? roots.slice().sort((a, b) => b.session.seq - a.session.seq)[0] ?? null
+        if (!agent) return { messages: [], running: false }
+        const messages = []
+        for (const event of agent.session.snapshotEvents()) {
+          if (event.type === 'user/message') {
+            const content = event.data?.content ?? []
+            const text = content.filter((block) => block.type === 'text').map((block) => block.text).join('')
+            if (text !== '') messages.push({ id: 'u' + event.seq, role: 'user', text, at: event.time })
+          } else if (event.type === 'assistant/message') {
+            const content = event.data?.message?.content ?? []
+            const blocks = []
+            for (const block of content) {
+              if (block.type === 'text' && block.text.trim() !== '') blocks.push({ type: 'text', text: block.text })
+              else if (block.type === 'tool-call') blocks.push({ type: 'tool', name: block.name, detail: String(block.arguments ?? '').slice(0, 120) })
+            }
+            // Only turns the user actually reads become bubbles; tool-only steps stay out.
+            if (blocks.some((block) => block.type === 'text')) messages.push({ id: 'a' + event.seq, role: 'assistant', blocks, at: event.time })
+          }
+        }
+        return { messages: messages.slice(-40), running: agent.status === 'running', sessionId: agent.id }
+      }),
+      post('/chat/send', async (body) => {
+        const text = String(body?.text ?? '').trim()
+        if (text === '') throw new Error('消息是空的')
+        const agents = ctx.get('agents')
+        const roots = agents?.roots?.() ?? []
+        const agent = roots.find((item) => item.status === 'running') ?? roots.slice().sort((a, b) => b.session.seq - a.session.seq)[0]
+        if (!agent) throw new Error('没有可以投递的会话')
+        agent.followup({ role: 'user', content: [{ type: 'text', text }] })
+        return { sent: true, sessionId: agent.id }
+      }),
       get('/state', async () => {
         await engine.load()
         return {

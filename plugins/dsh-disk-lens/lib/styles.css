@@ -296,7 +296,10 @@
 /* ---------- single-screen shell ---------- */
 
 .dl-strip { flex: none; }
-.dl-main { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 340px); gap: 12px; align-items: stretch; }
+.dl-main { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 240px minmax(0, 1fr) 340px; gap: 12px; align-items: stretch; }
+.dl-cats { display: flex; flex-direction: column; min-height: 0; overflow: auto; }
+.dl-cats .dl-panel { flex: 1 1 auto; min-height: 0; }
+.dl-narrow-only { display: none; }
 .dl-side { display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow: auto; }
 .dl-suggest { display: flex; flex-direction: column; min-height: 0; }
 .dl-suggest-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
@@ -324,6 +327,34 @@
 @media (max-width: 1080px) {
   .dl-root { overflow: auto; height: auto; min-height: 100%; }
   .dl-main { grid-template-columns: 1fr; }
+  .dl-suggest-body { overflow: visible; }
+}
+
+/* ---------- responsive ---------- */
+
+.dl-root { container-type: inline-size; }
+
+.dl-chat { display: flex; flex-direction: column; min-height: 0; }
+.dl-chat-log { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 9px; }
+.dl-chat.is-embedded { height: 100%; border: 0; border-radius: 0; }
+.dl-chat.is-embedded .dl-chat-log { max-height: none; }
+
+@container (max-width: 1180px) {
+  .dl-main { grid-template-columns: minmax(0, 1fr) 330px; }
+  .dl-cats { display: none; }
+  .dl-narrow-only { display: inline-flex; }
+}
+
+@container (max-width: 820px) {
+  .dl-root { overflow: auto; height: auto; min-height: 100%; }
+  .dl-main { grid-template-columns: minmax(0, 1fr); }
+  .dl-main > .dl-chat { display: none; }
+  .dl-head { flex-wrap: wrap; gap: 10px; }
+  .dl-hero { gap: 14px; }
+  .dl-hero-num { font-size: 18px; }
+  .dl-strip .dl-map { padding: 12px 14px; }
+  .dl-foot-bar { flex-wrap: wrap; }
+  .dl-foot-status { flex-basis: 100%; }
   .dl-suggest-body { overflow: visible; }
 }
 

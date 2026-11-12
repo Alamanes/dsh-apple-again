@@ -378,26 +378,50 @@ window.__ModuleLoader__.load({
       )
     }
 
-    const AI_HINT = '分析一下这张盘：用 disk_state 读上次快照，必要时 disk_scan 补测，再用 disk_propose 把分类和清理建议写回面板。'
-
-    function AiCard({ snapshot, onOpenSettings }) {
-      const [copied, setCopied] = useState(false)
-      const copy = async () => {
-        try {
-          await navigator.clipboard.writeText(AI_HINT)
-          setCopied(true)
-          setTimeout(() => setCopied(false), 1800)
-        } catch { /* clipboard blocked, the text stays selectable */ }
-      }
-      const written = snapshot !== null && snapshot.source === 'model'
-      return h('section', { className: 'dl-panel dl-ai' },
-        h('div', { className: 'dl-panel-head' }, h('h3', null, 'AI 分析'), h('span', null, written ? '模型写过' : '未使用')),
-        h('div', { className: 'dl-ai-body' },
-          h('p', null, '在对话里说下面这句。模型会读取快照、补测、把建议写回这里，面板自己刷新。'),
-          h('code', { className: 'dl-ai-snippet' }, AI_HINT),
-          h('div', { className: 'dl-actions' },
-            h('button', { className: 'dl-btn', onClick: copy }, copied ? '已复制' : '复制这句'),
-            h('button', { className: 'dl-btn is-quiet', onClick: onOpenSettings }, '模型设置')
+    function ChatPanel({ chat, input, onInput, onSend, sending, embedded }) {
+      const scroller = useRef(null)
+      const messages = chat ? chat.messages : []
+      const running = sending || (chat ? chat.running : false)
+      useEffect(() => {
+        const node = scroller.current
+        if (node !== null) node.scrollTop = node.scrollHeight
+      }, [messages.length, running])
+      return h('section', { className: 'dl-panel dl-chat' + (embedded ? ' is-embedded' : '') },
+        h('div', { className: 'dl-panel-head' },
+          h('h3', null, '对话'),
+          h('span', null, running ? '运行中' : '当前会话')
+        ),
+        h('div', { className: 'dl-chat-log', ref: scroller },
+          messages.length === 0
+            ? h('div', { className: 'dl-empty' }, '在这里和当前会话对话。问磁盘上的事，模型会调用扫描与建议工具，结果直接写在面板里。')
+            : messages.map((message) => h('div', { key: message.id, className: 'dl-msg is-' + message.role },
+                message.role === 'user'
+                  ? h('div', { className: 'dl-bubble' }, message.text)
+                  : h('div', { className: 'dl-bubble' },
+                      (message.blocks || []).map((block, index) => block.type === 'text'
+                        ? h('p', { key: 'b' + index, className: 'dl-msg-text' }, block.text)
+                        : h('div', { key: 'b' + index, className: 'dl-tool' },
+                            h('span', { className: 'dl-tool-name' }, block.name),
+                            h('span', { className: 'dl-tool-detail' }, block.detail || '')
+                          ))
+                    )
+              ))
+        ),
+        h('div', { className: 'dl-chat-input' },
+          h('textarea', {
+            value: input,
+            rows: 2,
+            placeholder: '问磁盘上的事，或让它分析…',
+            onChange: (event) => onInput(event.target.value),
+            onKeyDown: (event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault()
+                onSend()
+              }
+            },
+          }),
+          h('div', { className: 'dl-chat-actions' },
+            h('button', { className: 'dl-btn is-primary', disabled: input.trim() === '' || running, onClick: onSend }, running ? '运行中…' : '发送')
           )
         )
       )
@@ -406,6 +430,9 @@ window.__ModuleLoader__.load({
     function DiskLensPage({ api }) {
       const client = useMemo(() => api || new Api(), [api])
       const [state, setState] = useState(null)
+      const [chat, setChat] = useState(null)
+      const [chatInput, setChatInput] = useState('')
+      const [sending, setSending] = useState(false)
       const [active, setActive] = useState('')
       const [selected, setSelected] = useState(() => new Set())
       const [pending, setPending] = useState(null)
@@ -421,8 +448,7 @@ window.__ModuleLoader__.load({
       const refresh = useCallback(async () => {
         try {
           const next = await client.state()
-          if (!mounted.current) return
-          setState(next)
+          if (mounted.current) setState(next)
         } catch (problem) {
           if (mounted.current) setError(problem instanceof Error ? problem.message : String(problem))
         }
@@ -434,6 +460,35 @@ window.__ModuleLoader__.load({
         const timer = setInterval(() => { void refresh() }, busyPoll ? 900 : 3000)
         return () => clearInterval(timer)
       }, [refresh, state !== null && state.scanning])
+
+      const pollChat = useCallback(async () => {
+        try {
+          const next = await client.chat()
+          if (mounted.current) setChat(next)
+        } catch { /* keep the last view */ }
+      }, [client])
+
+      useEffect(() => {
+        void pollChat()
+        const running = chat !== null && (chat.running || sending)
+        const timer = setInterval(() => { void pollChat() }, running ? 900 : 2600)
+        return () => clearInterval(timer)
+      }, [pollChat, chat !== null && chat.running, sending])
+
+      const sendChat = async () => {
+        const text = chatInput.trim()
+        if (text === '' || sending) return
+        setChatInput('')
+        setSending(true)
+        try {
+          await client.chatSend(text)
+          await pollChat()
+        } catch (problem) {
+          setError(problem instanceof Error ? problem.message : String(problem))
+        } finally {
+          setSending(false)
+        }
+      }
 
       const snapshot = state ? state.snapshot : null
       const scanning = state ? state.scanning : false
@@ -538,11 +593,9 @@ window.__ModuleLoader__.load({
         h('div', { className: 'dl-strip' }, h(CapacityBar, { snapshot, scanning, progress, active, onSelect: setActive })),
 
         h('div', { className: 'dl-main' },
+          h('div', { className: 'dl-cats' }, h(CategoryList, { snapshot, active, onSelect: setActive })),
           h(SuggestionList, { snapshot, selected, onToggle: toggle, allowDelete: settings.allowDelete }),
-          h('aside', { className: 'dl-side' },
-            h(CategoryList, { snapshot, active, onSelect: setActive }),
-            h(AiCard, { snapshot, onOpenSettings: () => setDrawer('settings') })
-          )
+          h(ChatPanel, { chat, input: chatInput, onInput: setChatInput, onSend: sendChat, sending })
         ),
 
         h('footer', { className: 'dl-foot-bar' },
@@ -553,8 +606,12 @@ window.__ModuleLoader__.load({
                 ? '上次扫描 ' + shortDate(snapshot.createdAt) + ' · ' + snapshot.categories.length + ' 类 · ' + candidates.length + ' 条建议'
                 : '还没有扫描。点「开始扫描」，只读测量，不会删任何东西。'
           ),
-          selected.size > 0 && h('span', { className: 'dl-foot-selected' }, '已选 ' + selected.size + ' 条 · ' + rmBytes(selectedBytes) + (selectedHasDelete && !settings.allowDelete ? ' · 含删除（未开启）' : '')),
+          h('span', { className: 'dl-foot-selected' }, selected.size > 0
+            ? '已选 ' + selected.size + ' 条 · ' + rmBytes(selectedBytes) + (selectedHasDelete && !settings.allowDelete ? ' · 含删除（未开启）' : '')
+            : ''),
           h('div', { className: 'dl-actions' },
+            h('button', { className: 'dl-btn is-quiet dl-narrow-only', onClick: () => setDrawer('cats') }, '分类'),
+            h('button', { className: 'dl-btn is-quiet dl-narrow-only', onClick: () => setDrawer('chat') }, '对话'),
             h('button', { className: 'dl-btn is-quiet', onClick: () => setDrawer('audit') }, '审计'),
             h('button', { className: 'dl-btn is-quiet', onClick: () => setDrawer('settings') }, '设置'),
             h('button', { className: 'dl-btn is-primary', disabled: selected.size === 0 || busy !== 'idle' || scanning, onClick: requestClean }, busy === 'planning' ? '准备脚本…' : '执行清理')
@@ -571,8 +628,14 @@ window.__ModuleLoader__.load({
         drawer === 'settings'
           ? h(Drawer, { title: '设置', onClose: () => setDrawer('') },
               h(SettingsPanel, { settings, rules, onPatch: patchSettings, busy: busy === 'settings' }),
-              h('p', { className: 'dl-drawer-note' }, '模型与思考强度在主对话的模型菜单里选；这里的分析走当前会话，不另开一套。')
+              h('p', { className: 'dl-drawer-note' }, '模型与思考强度在主对话的模型菜单里选；这里的对话就是当前会话。')
             )
+          : null,
+        drawer === 'cats'
+          ? h(Drawer, { title: '分类', onClose: () => setDrawer('') }, h(CategoryList, { snapshot, active, onSelect: setActive }))
+          : null,
+        drawer === 'chat'
+          ? h(Drawer, { title: '对话', onClose: () => setDrawer('') }, h(ChatPanel, { chat, input: chatInput, onInput: setChatInput, onSend: sendChat, sending, embedded: true }))
           : null,
 
         pending !== null
