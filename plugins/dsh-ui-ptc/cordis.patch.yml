@@ -161,6 +161,12 @@
         isolate:
           workflowEngine: true
         config:
+          - id: agent-team
+            name: '@deepseek-ai/dsh-agent-team'
+            config:
+              maxTasks: 256
+          - id: tool-agent-team
+            name: '@deepseek-ai/dsh-tool-agent-team'
           - id: tool-subagent-control
             name: '@deepseek-ai/dsh-tool-subagent-control'
           - id: tool-subagent
