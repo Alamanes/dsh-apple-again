@@ -1,0 +1,9 @@
+{
+  "meta": {
+    "title": "Disk Lens",
+    "description": "Disk panel: rule-based scan, sand capacity map, reviewable cleanup suggestions."
+  },
+  "panel": {
+    "label": "Disk Lens"
+  }
+}

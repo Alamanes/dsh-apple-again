@@ -1,0 +1,4 @@
+# dsh-disk-lens: one row of its own bundle.
+- insert:
+    - id: dsh-disk-lens
+      name: dsh-disk-lens

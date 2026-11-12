@@ -1,0 +1,174 @@
+/* dsh-disk-lens — the disk panel. One root class, everything scoped under it.
+   Colours follow the harness theme through --dshui-* and fall back to a warm
+   graphite of their own when the theme is absent. */
+
+.dl-root {
+  --dl-bg: var(--dshui-palette-base, #101214);
+  --dl-layer: var(--dshui-palette-layer-1, #171a1d);
+  --dl-layer-2: var(--dshui-palette-layer-2, #1e2226);
+  --dl-line: var(--dshui-neutral-stroke, rgba(255, 255, 255, 0.09));
+  --dl-ink: var(--dshui-ink, #e9e4dc);
+  --dl-dim: color-mix(in srgb, var(--dl-ink) 58%, transparent);
+  --dl-faint: color-mix(in srgb, var(--dl-ink) 32%, transparent);
+  --dl-content: #d99a5b;
+  --dl-tools: #7c9fd8;
+  --dl-caches: #5fb3a6;
+  --dl-system: #87909c;
+  --dl-hot: #e06c5a;
+  --dl-good: #6fae7c;
+  --dl-radius: 14px;
+  --dl-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  --dl-sans: -apple-system, "SF Pro Text", "PingFang SC", "Helvetica Neue", system-ui, sans-serif;
+
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding: 26px 30px 34px;
+  background:
+    radial-gradient(1200px 420px at 12% -8%, color-mix(in srgb, var(--dl-content) 9%, transparent), transparent 60%),
+    radial-gradient(900px 380px at 100% 0%, color-mix(in srgb, var(--dl-tools) 7%, transparent), transparent 55%),
+    var(--dl-bg);
+  color: var(--dl-ink);
+  font-family: var(--dl-sans);
+  font-size: 13.5px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+.dl-root * { box-sizing: border-box; }
+.dl-root button { font: inherit; color: inherit; cursor: pointer; }
+.dl-root ::selection { background: color-mix(in srgb, var(--dl-content) 35%, transparent); }
+
+/* ---------- head ---------- */
+
+.dl-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+.dl-brand { display: flex; flex-direction: column; gap: 4px; }
+.dl-brand-mark { display: flex; align-items: center; gap: 9px; font-family: var(--dl-mono); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dl-dim); }
+.dl-brand-mark i { width: 22px; height: 1px; background: currentColor; display: inline-block; }
+.dl-title { font-size: 26px; font-weight: 650; letter-spacing: -0.015em; margin: 2px 0 0; }
+.dl-sub { color: var(--dl-dim); font-size: 12.5px; margin: 0; max-width: 52ch; }
+
+.dl-hero { display: flex; align-items: baseline; gap: 26px; }
+.dl-hero-item { display: flex; flex-direction: column; gap: 2px; }
+.dl-hero-num { font-family: var(--dl-mono); font-size: 30px; font-weight: 500; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.dl-hero-cap { font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dl-faint); }
+.dl-hero-num.is-hot { color: var(--dl-content); }
+.dl-actions { display: flex; gap: 8px; align-items: center; }
+
+.dl-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 32px; padding: 0 14px; border-radius: 9px;
+  border: 1px solid var(--dl-line);
+  background: var(--dl-layer-2);
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+.dl-btn:hover { border-color: color-mix(in srgb, var(--dl-ink) 26%, transparent); }
+.dl-btn:active { transform: translateY(1px); }
+.dl-btn[disabled] { opacity: 0.45; cursor: default; }
+.dl-btn.is-primary { background: var(--dl-content); border-color: transparent; color: #20160c; font-weight: 600; }
+.dl-btn.is-primary:hover { background: color-mix(in srgb, var(--dl-content) 88%, white); }
+.dl-btn.is-quiet { background: transparent; }
+.dl-btn.is-danger { color: var(--dl-hot); }
+
+/* ---------- sand map ---------- */
+
+.dl-map {
+  position: relative;
+  border: 1px solid var(--dl-line);
+  border-radius: var(--dl-radius);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--dl-layer) 92%, transparent), var(--dl-layer));
+  overflow: hidden;
+}
+.dl-map svg { display: block; width: 100%; height: 258px; }
+.dl-map .dl-stone { cursor: pointer; transition: opacity 140ms ease; }
+.dl-map has(.dl-stone:hover) .dl-stone { opacity: 0.72; }
+.dl-map .dl-stone:hover { opacity: 1; }
+.dl-map .dl-stone.is-active { stroke: var(--dl-ink); stroke-width: 1.5; stroke-opacity: 0.55; }
+.dl-map-meta { position: absolute; left: 16px; top: 14px; display: flex; gap: 10px; align-items: center; pointer-events: none; }
+.dl-chip { font-family: var(--dl-mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dl-faint); border: 1px solid var(--dl-line); border-radius: 999px; padding: 3px 9px; background: color-mix(in srgb, var(--dl-bg) 70%, transparent); }
+.dl-map-legend { position: absolute; right: 16px; bottom: 12px; display: flex; gap: 14px; font-size: 11px; color: var(--dl-dim); }
+.dl-map-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.dl-map-legend i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.dl-map-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--dl-faint); font-size: 13px; }
+.dl-scanline { position: absolute; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--dl-content) 70%, transparent), transparent); animation: dl-sweep 2.6s linear infinite; opacity: 0.8; }
+@keyframes dl-sweep { from { top: 0; } to { top: 100%; } }
+
+/* ---------- columns ---------- */
+
+.dl-grid { display: grid; grid-template-columns: minmax(280px, 0.9fr) minmax(380px, 1.35fr); gap: 16px; align-items: start; }
+@media (max-width: 1000px) { .dl-grid { grid-template-columns: 1fr; } }
+
+.dl-panel { border: 1px solid var(--dl-line); border-radius: var(--dl-radius); background: var(--dl-layer); overflow: hidden; }
+.dl-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--dl-line); }
+.dl-panel-head h3 { margin: 0; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dl-dim); font-weight: 600; }
+.dl-panel-head span { font-family: var(--dl-mono); font-size: 11px; color: var(--dl-faint); }
+
+/* category rows */
+
+.dl-cat { display: grid; grid-template-columns: 4px 1fr auto; gap: 12px; padding: 11px 14px; border-bottom: 1px solid color-mix(in srgb, var(--dl-line) 60%, transparent); cursor: pointer; transition: background 120ms ease; }
+.dl-cat:last-child { border-bottom: none; }
+.dl-cat:hover { background: color-mix(in srgb, var(--dl-ink) 4%, transparent); }
+.dl-cat.is-active { background: color-mix(in srgb, var(--dl-ink) 7%, transparent); }
+.dl-cat-bar { border-radius: 2px; background: var(--dl-system); }
+.dl-cat[data-family="content"] .dl-cat-bar { background: var(--dl-content); }
+.dl-cat[data-family="tools"] .dl-cat-bar { background: var(--dl-tools); }
+.dl-cat[data-family="caches"] .dl-cat-bar { background: var(--dl-caches); }
+.dl-cat-name { font-weight: 550; display: flex; align-items: center; gap: 8px; }
+.dl-cat-note { color: var(--dl-faint); font-size: 11.5px; margin-top: 1px; }
+.dl-cat-size { font-family: var(--dl-mono); font-variant-numeric: tabular-nums; font-size: 12.5px; color: var(--dl-dim); align-self: center; }
+.dl-cat-items { grid-column: 2 / -1; display: flex; flex-direction: column; gap: 3px; margin-top: 2px; }
+.dl-cat-item { display: flex; justify-content: space-between; gap: 12px; font-size: 11.5px; color: var(--dl-dim); }
+.dl-cat-item b { font-weight: 450; font-family: var(--dl-mono); font-variant-numeric: tabular-nums; }
+.dl-cat-item.is-denied { color: var(--dl-hot); }
+.dl-tag { font-family: var(--dl-mono); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; padding: 1px 5px; border-radius: 4px; border: 1px solid var(--dl-line); color: var(--dl-faint); }
+.dl-tag.is-safe { color: var(--dl-good); border-color: color-mix(in srgb, var(--dl-good) 45%, transparent); }
+.dl-tag.is-review { color: var(--dl-content); border-color: color-mix(in srgb, var(--dl-content) 45%, transparent); }
+.dl-tag.is-careful { color: var(--dl-hot); border-color: color-mix(in srgb, var(--dl-hot) 45%, transparent); }
+.dl-tag.is-model { color: var(--dl-tools); border-color: color-mix(in srgb, var(--dl-tools) 45%, transparent); }
+
+/* suggestion rows */
+
+.dl-sug { display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; padding: 12px 14px; border-bottom: 1px solid color-mix(in srgb, var(--dl-line) 60%, transparent); align-items: start; }
+.dl-sug:last-child { border-bottom: none; }
+.dl-sug:hover { background: color-mix(in srgb, var(--dl-ink) 3%, transparent); }
+.dl-check { width: 18px; height: 18px; margin-top: 2px; border-radius: 5px; border: 1px solid color-mix(in srgb, var(--dl-ink) 30%, transparent); background: transparent; display: grid; place-items: center; padding: 0; }
+.dl-check[data-on="true"] { background: var(--dl-content); border-color: transparent; color: #20160c; }
+.dl-sug-label { font-weight: 550; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.dl-sug-why { color: var(--dl-dim); font-size: 11.5px; margin-top: 2px; }
+.dl-sug-cmd { margin-top: 7px; font-family: var(--dl-mono); font-size: 11px; color: var(--dl-faint); background: color-mix(in srgb, var(--dl-ink) 4%, transparent); border: 1px solid var(--dl-line); border-radius: 7px; padding: 7px 9px; white-space: pre-wrap; word-break: break-all; }
+.dl-sug-size { font-family: var(--dl-mono); font-variant-numeric: tabular-nums; font-size: 12.5px; color: var(--dl-dim); }
+.dl-empty { padding: 26px 16px; text-align: center; color: var(--dl-faint); font-size: 12px; }
+
+/* ---------- plan / audit ---------- */
+
+.dl-plan { border: 1px solid var(--dl-line); border-radius: var(--dl-radius); background: var(--dl-layer); padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.dl-plan pre { margin: 0; max-height: 220px; overflow: auto; font-family: var(--dl-mono); font-size: 11px; color: var(--dl-dim); background: color-mix(in srgb, var(--dl-ink) 4%, transparent); border: 1px solid var(--dl-line); border-radius: 9px; padding: 12px; white-space: pre; }
+.dl-plan-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.dl-audit { font-family: var(--dl-mono); font-size: 11px; color: var(--dl-dim); display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow: auto; }
+.dl-audit-row { display: grid; grid-template-columns: 128px 70px 1fr; gap: 10px; }
+.dl-audit-row span:first-child { color: var(--dl-faint); }
+
+.dl-progress { display: flex; align-items: center; gap: 10px; color: var(--dl-dim); font-size: 11.5px; }
+.dl-progress-bar { height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--dl-ink) 10%, transparent); flex: 1; overflow: hidden; }
+.dl-progress-bar i { display: block; height: 100%; background: var(--dl-content); transition: width 220ms ease; }
+.dl-error { color: var(--dl-hot); font-size: 12px; }
+
+.dl-settings { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
+.dl-switch { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 8px 0; border-bottom: 1px solid color-mix(in srgb, var(--dl-line) 55%, transparent); font-size: 12.5px; }
+.dl-switch:last-child { border-bottom: none; }
+.dl-switch small { display: block; color: var(--dl-faint); font-size: 11px; }
+.dl-switch button { width: 40px; height: 22px; border-radius: 999px; border: 1px solid var(--dl-line); background: color-mix(in srgb, var(--dl-ink) 9%, transparent); position: relative; padding: 0; transition: background 140ms ease; }
+.dl-switch button i { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--dl-ink); opacity: 0.7; transition: transform 140ms ease, opacity 140ms ease; }
+.dl-switch button[data-on="true"] { background: color-mix(in srgb, var(--dl-caches) 35%, transparent); }
+.dl-switch button[data-on="true"] i { transform: translateX(18px); opacity: 1; }
+
+.dl-tabs { display: flex; gap: 4px; }
+.dl-tab { padding: 4px 10px; border-radius: 7px; border: 1px solid transparent; background: transparent; color: var(--dl-dim); font-size: 12px; }
+.dl-tab[data-on="true"] { border-color: var(--dl-line); background: var(--dl-layer-2); color: var(--dl-ink); }
+
+@media (prefers-reduced-motion: reduce) {
+  .dl-root *, .dl-root *::before, .dl-root *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}

@@ -2,3 +2,5 @@ node_modules/
 .DS_Store
 *.log
 AGENTS.md
+Kanso.app/
+kanso-analysis/
