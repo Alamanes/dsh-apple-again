@@ -1,6 +1,0 @@
-{
-  "meta": {
-    "title": "Session delete",
-    "description": "The delete row and its confirmation, removing a session's data from disk."
-  }
-}
