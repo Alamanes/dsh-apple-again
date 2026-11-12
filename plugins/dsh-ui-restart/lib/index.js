@@ -30,8 +30,10 @@
  * operation cannot exist without (`tools`, `agents`) are waited for through a
  * local `ctx.inject` instead of a plugin-level `inject` list: a composition
  * without them leaves this component inert and the rest of the suite running.
- * The state directory keeps its standalone spelling (`<dsh home>/dsh-restart`)
- * so a `pending.json` written before the migration still resumes.
+ * The state directory lives under the profile's `storages/` root, so the dsh
+ * home keeps its handful of standard folders; the old `<dsh home>/dsh-restart`
+ * folder is moved there on first use, carrying a pre-migration `pending.json`
+ * with it so an interrupted restart still resumes.
  *
  * @module dsh-ui-copy/host/restart
  */
@@ -39,7 +41,7 @@
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 
@@ -98,9 +100,62 @@ function dshHome() {
     : path.join(homedir(), '.dsh')
 }
 
-/** This component's private state directory. */
+/**
+ * This component's private state directory, under the profile's storages root
+ * beside the other plugins' state.
+ */
 function stateDirectory() {
-  return path.join(dshHome(), 'dsh-restart')
+  migrateLegacyDirectory()
+  return path.join(dshHome(), 'storages', 'dsh-restart')
+}
+
+/** Where this folder used to live: one clutter entry in the dsh home root. */
+const LEGACY_STATE_DIRECTORY = 'dsh-restart'
+
+/** The one-shot move runs on the first state read and never again. */
+let legacyMigrated = false
+
+/**
+ * Move the pre-migration folder under `storages/` once.
+ *
+ * A pending payload written by an older build has to survive the move, so the
+ * folder is renamed rather than copied: same volume, one atomic step. A move
+ * that fails leaves the legacy folder where it is and the new one empty, which
+ * costs at most one restart's session list.
+ */
+function migrateLegacyDirectory() {
+  if (legacyMigrated) return
+  legacyMigrated = true
+  try {
+    const legacy = path.join(dshHome(), LEGACY_STATE_DIRECTORY)
+    const next = path.join(dshHome(), 'storages', 'dsh-restart')
+    if (!existsSync(legacy)) return
+    mkdirSync(path.dirname(next), { recursive: true })
+    if (!existsSync(next)) {
+      renameSync(legacy, next)
+      return
+    }
+    // The destination already exists — someone moved the folder by hand, or a
+    // later build wrote state before this pass ran. Carry over the files worth
+    // keeping rather than losing a pending restart to the tie.
+    for (const name of ['pending.json', 'restart.log']) {
+      const from = path.join(legacy, name)
+      if (!existsSync(from)) continue
+      if (name === 'pending.json' && existsSync(path.join(next, name))) continue
+      try {
+        renameSync(from, path.join(next, name))
+      } catch {
+        // One file that refuses to move does not strand the rest.
+      }
+    }
+    try {
+      rmSync(legacy, { recursive: true, force: true })
+    } catch {
+      // A folder that stays behind is untidy, not broken.
+    }
+  } catch {
+    // A folder that cannot move stays where it is; nothing here is fatal.
+  }
 }
 
 /** Where the sessions interrupted by the next restart are recorded. */

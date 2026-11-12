@@ -1,8 +1,8 @@
 {
   "name": "dsh-ui-restart",
-  "version": "2.0.0",
+  "version": "2.1.1",
   "private": true,
-  "description": "标题栏的「彻底关闭并重新启动」按钮，以及 restart_dsh 工具。（dsh-ui-suite 组件）",
+  "description": "左下角账号菜单里的「重启」，以及 restart_dsh 工具。（dsh-ui-suite 组件）",
   "keywords": [
     "dsh",
     "dsh-plugin",

@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "彻底重启",
-    "description": "标题栏的「彻底关闭并重新启动」按钮与 restart_dsh 工具，重启后接回被中断的会话。"
+    "title": "重启",
+    "description": "左下角账号菜单里的「重启」与 restart_dsh 工具，重启后接回被中断的会话。"
   }
 }

@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Full restart",
-    "description": "The title-bar restart button and the restart_dsh tool, resuming interrupted sessions after relaunch."
+    "title": "Restart",
+    "description": "The Restart row in the sidebar account menu and the restart_dsh tool, resuming interrupted sessions after relaunch."
   }
 }

@@ -1,40 +1,25 @@
 /**
- * Restart control: one small button parked in the top-right corner of the frame,
- * just left of the built-in right-panel toggle, that fully quits and relaunches
- * the DSH desktop app.
+ * Restart control: one row inside the account menu at the sidebar foot, above
+ * Settings, that fully quits and relaunches the DSH desktop app.
  *
- * Why `shell.overlay`: the conversation header seats only exist once a session
- * is open. A brand-new chat renders `headerBlank headerSessionless`, which keeps
- * the corner seat and the leading seat but not `header.utilities`, so a control
- * registered in `conversation.session.header.utilities` never appears on the
- * first screen. The overlay layer is mounted by the frame itself, is present on
- * every route, and its children are laid out in frame coordinates.
+ * Why the account menu rather than a corner seat: the frame's top-right corner
+ * is shared with the right rail's control group. A seat there has to re-measure
+ * that group on every layout change and still lands on top of it while the rail
+ * slides, so the control is parked in the one surface whose rows the host lays
+ * out itself.
  *
- * The button owns no restart logic. It posts the current session id to the host
+ * Why injection: the menu's rows come from a fixed list inside the host's
+ * account surface and no slot is declared for them, so the row is cloned from
+ * the Settings row of the open menu instead of registered into it. The menu is
+ * rebuilt on every open, which makes one injection per open the whole
+ * lifecycle: no teardown, no stale node.
+ *
+ * The row owns no restart logic. It posts the current session id to the host
  * half and waits: roughly a second later the whole app goes away, so the only
  * durable state is the host's pending-session file.
  */
 function dshuiComponent_restart(rt) {
-  const React = rt.require('react')
-  if (React === null) {
-    rt.warn('react is not in this boot graph; restart skipped')
-    return
-  }
-  const h = React.createElement
-
-  /**
-   * The control is built out of primitives — the shipped tooltip, button and
-   * refresh glyph — so there is no plain-DOM rendering to fall back to. Without
-   * them the component logs once and stays inert rather than drawing a disabled
-   * or half-styled corner seat that reads as a broken frame.
-   */
-  const primitives = rt.require('@deepseek-ai/dsh-client-ui-primitives')
-  if (primitives === null) {
-    rt.warn('ui primitives are not in this boot graph; restart has no control')
-    return
-  }
-
-  /** Locale namespace for this component's copy; also the slot registration's `locale`. */
+  /** Locale namespace for this component's copy. */
   const NS = 'dsh-restart'
 
   /**
@@ -48,92 +33,209 @@ function dshuiComponent_restart(rt) {
 
   /** Copy, in the shape `ctx.locale.register` takes. */
   const zh = {
-    'button.label': '彻底重启 DSH',
-    'button.pending': '正在关闭并重新启动…',
+    'menu.label': '重启',
+    'menu.pending': '正在关闭并重新启动…',
     'failed.network': '请求发不出去，重启未开始。',
     'failed.desktop': '当前不是桌面应用宿主，无法重启。',
     'failed.generic': '重启失败，请重试。',
   }
   const en = {
-    'button.label': 'Restart DSH',
-    'button.pending': 'Quitting and relaunching…',
+    'menu.label': 'Restart',
+    'menu.pending': 'Quitting and relaunching…',
     'failed.network': 'The request could not be sent; nothing was restarted.',
     'failed.desktop': 'This process is not the desktop app host, so it cannot restart.',
     'failed.generic': 'Restart failed. Try again.',
   }
 
-  /** Stylesheet for the one component-owned control. */
+  /**
+   * Stylesheet for the injected row. Everything that can come from the cloned
+   * host row does; only the three spans and the busy state are owned here.
+   */
   const STYLESHEET = `
-.dsh-restart-seat { position: absolute; top: 11px; right: 48px; z-index: 1; display: flex; align-items: center; -webkit-app-region: no-drag; }
-.dsh-restart-button { width: 28px; height: 28px; color: var(--dshui-text-secondary); flex: none; padding: 0; }
-.dsh-restart-button svg { width: 15px; height: 15px; }
-.dsh-restart-button:disabled { opacity: .6; }
-.dsh-restart-spin { animation: dsh-restart-spin .9s linear infinite; }
+.dsh-restart-row { display: flex; align-items: center; gap: 8px; width: 100%; }
+.dsh-restart-row-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; color: inherit; }
+.dsh-restart-row-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: inherit; font-size: inherit; font-weight: inherit; }
+.dsh-restart-row[aria-disabled="true"] { opacity: .6; }
+.dsh-restart-row-spin { animation: dsh-restart-spin .9s linear infinite; }
 @keyframes dsh-restart-spin { to { transform: rotate(360deg); } }
 `
 
+  /** What the row should read right now: idle, busy, or holding an error. */
+  const state = { phase: 'idle', error: null }
+
   /**
-   * The restart control.
-   *
-   * @param props - the restart hop from the host half, and the locale seat.
-   * @returns the icon button seated in the frame's top-right corner.
+   * Row labels. A row may be a real `menuitem`, a plain button or a link: the
+   * menu surfaces differ between the web app and the desktop shell, so the text
+   * is what identifies a row, not its role.
    */
-  function RestartButton({ restart, t }) {
-    const [busy, setBusy] = React.useState(false)
-    const [error, setError] = React.useState(null)
+  const SIGN_OUT = /^(退出登录|Sign out)/
+  const SETTINGS_ROW = /^(设置|Settings)/
 
-    const press = () => {
-      if (busy) return
-      setBusy(true)
-      setError(null)
-      restart().catch((reason) => {
-        setBusy(false)
-        setError(reason instanceof Error ? reason.message : String(reason))
-      })
+  /** Trim whitespace runs so a row's text reads as one line. */
+  function rowText(row) {
+    return (row.textContent ?? '').replace(/\s+/g, ' ').trim()
+  }
+
+  /** The open account menu: one holding a sign-out row, else a settings row. */
+  function findAccountMenu() {
+    const menus = document.querySelectorAll('[role="menu"]')
+    for (const menu of menus) {
+      for (const row of menu.querySelectorAll('[role="menuitem"], button, a')) {
+        if (SIGN_OUT.test(rowText(row))) return menu
+      }
     }
-
-    const label = busy ? t('button.pending') : error !== null ? error : t('button.label')
-    return h(
-      'div',
-      { className: 'dsh-restart-seat' },
-      h(
-        primitives.Tooltip,
-        { label, side: 'bottom', delayMs: 400 },
-        h(
-          primitives.Button,
-          {
-            size: 'sm',
-            className: 'dsh-restart-button',
-            'aria-label': t('button.label'),
-            disabled: busy,
-            onClick: press,
-          },
-          h(primitives.IconRefreshOutlineRegular, { size: 15, className: busy ? 'dsh-restart-spin' : undefined }),
-        ),
-      ),
-    )
+    for (const menu of menus) {
+      for (const row of menu.querySelectorAll('[role="menuitem"], button, a')) {
+        if (SETTINGS_ROW.test(rowText(row))) return menu
+      }
+    }
+    return null
   }
 
   /**
-   * Install the surface.
-   *
-   * The services are waited for here rather than declared on the plugin, so a
-   * composition without them leaves this component inert and the rest of the
-   * suite running.
-   *
-   * @param ctx - client root context with `slots`, `locale` and `uiSession`.
+   * The row this one sits above: Settings where the build puts it in the menu,
+   * otherwise the menu's first row so the entry still lands inside the menu.
    */
-  function install(ctx) {
-    ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-copy/restart: dictionaries')
+  function findAnchorRow(menu) {
+    for (const row of menu.querySelectorAll('[role="menuitem"]')) {
+      if (SETTINGS_ROW.test(rowText(row))) return row
+    }
+    for (const row of menu.querySelectorAll('button, a')) {
+      if (SETTINGS_ROW.test(rowText(row))) return row
+    }
+    return menu.querySelector('[role="menuitem"], button, a')
+  }
 
-    // The suite's sheet registry owns the <style> element, so switching this
-    // component off removes its rules with it instead of leaving them behind.
+  /** A circular-arrow glyph as a DOM node, for the row built outside React. */
+  function glyphNode() {
+    const ns = 'http://www.w3.org/2000/svg'
+    const svg = document.createElementNS(ns, 'svg')
+    svg.setAttribute('viewBox', '0 0 16 16')
+    svg.setAttribute('width', '15')
+    svg.setAttribute('height', '15')
+    svg.setAttribute('fill', 'none')
+    svg.setAttribute('stroke', 'currentColor')
+    svg.setAttribute('stroke-width', '1.3')
+    svg.setAttribute('stroke-linecap', 'round')
+    svg.setAttribute('aria-hidden', 'true')
+
+    const arc = document.createElementNS(ns, 'path')
+    arc.setAttribute('d', 'M13.1 8a5.1 5.1 0 1 1-1.5-3.6')
+    const head = document.createElementNS(ns, 'path')
+    head.setAttribute('d', 'M13.3 2.9v3h-3')
+    svg.append(arc, head)
+    return svg
+  }
+
+  /**
+   * One menu row, cloned from the anchor so it inherits the host's spacing,
+   * hover and focus treatment.
+   *
+   * @param template - the row to clone.
+   * @returns the empty row, still without copy or handler.
+   */
+  function buildRow(template) {
+    const row = template.cloneNode(false)
+    row.setAttribute('data-dsh-restart-row', '')
+    row.setAttribute('role', 'menuitem')
+    row.setAttribute('tabindex', '-1')
+    row.classList.add('dsh-restart-row')
+    while (row.firstChild !== null) row.removeChild(row.firstChild)
+
+    const icon = document.createElement('span')
+    icon.className = 'dsh-restart-row-icon'
+    icon.appendChild(glyphNode())
+
+    const label = document.createElement('span')
+    label.className = 'dsh-restart-row-label'
+
+    row.append(icon, label)
+    return row
+  }
+
+  /**
+   * Write the current state onto a row. Every write is guarded by a comparison:
+   * the menu is rebuilt inside the same mutation sweep that watches it, so an
+   * unconditional write would feed the observer its own output.
+   *
+   * @param row - the injected row.
+   * @param t - bound translation.
+   */
+  function paint(row, t) {
+    const label = row.querySelector('.dsh-restart-row-label')
+    if (label === null) return
+    const glyph = row.querySelector('.dsh-restart-row-icon svg')
+
+    const busy = state.phase === 'busy'
+    if (busy) {
+      if (label.textContent !== t('menu.pending')) label.textContent = t('menu.pending')
+      if (row.getAttribute('aria-disabled') !== 'true') row.setAttribute('aria-disabled', 'true')
+      if (glyph !== null) glyph.classList.add('dsh-restart-row-spin')
+      return
+    }
+
+    const next = state.error === null ? t('menu.label') : state.error
+    if (label.textContent !== next) label.textContent = next
+    if (row.hasAttribute('aria-disabled')) row.removeAttribute('aria-disabled')
+    if (glyph !== null) glyph.classList.remove('dsh-restart-row-spin')
+    if (state.error === null) {
+      if (row.hasAttribute('title')) row.removeAttribute('title')
+    } else {
+      row.setAttribute('title', state.error)
+    }
+  }
+
+  /**
+   * Keep exactly one restart row in the open menu.
+   *
+   * @param t - bound translation.
+   * @param press - the click handler.
+   */
+  function ensureRow(t, press) {
+    const menu = findAccountMenu()
+    if (menu === null) return
+
+    const existing = menu.querySelector('[data-dsh-restart-row]')
+    if (existing !== null) {
+      paint(existing, t)
+      return
+    }
+
+    const anchor = findAnchorRow(menu)
+    if (anchor === null) return
+    const wrap = anchor.parentNode
+    if (wrap === null) return
+
+    const row = buildRow(anchor)
+    row.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      press()
+    })
+    paint(row, t)
+    wrap.insertBefore(row, anchor)
+  }
+
+  /**
+   * Install the row.
+   *
+   * The locale and session services are waited for here rather than declared on
+   * the plugin, so a composition without them leaves this component inert and
+   * the rest of the suite running.
+   *
+   * @param scope - client context with `locale` and `uiSession`.
+   */
+  function install(scope) {
     rt.style('restart', STYLESHEET)
+
+    scope.effect(() => scope.locale.register(NS, { zh, en }), 'ui-copy/restart: dictionaries')
+
+    const bind = scope.locale.bind(NS)
 
     /** The session currently occupying the main view, if any. */
     const currentSessionId = () => {
       try {
-        return ctx.uiSession?.current?.getSnapshot?.()?.key
+        return scope.uiSession?.current?.getSnapshot?.()?.key
       } catch {
         return undefined
       }
@@ -146,7 +248,6 @@ function dshuiComponent_restart(rt) {
      * @throws when the request could not be sent or the host refused it.
      */
     const restart = async () => {
-      const bind = ctx.locale.bind(NS)
       let response
       try {
         response = await fetch(RESTART_ROUTE, {
@@ -172,108 +273,27 @@ function dshuiComponent_restart(rt) {
       return payload
     }
 
-    /**
-     * Offset the seat keeps while the right rail is closed; the stylesheet
-     * parks it there and the rail's own expand control sits 8px to its right.
-     */
-    const CLOSED_RIGHT = 48
-    /** Breathing room between this seat and the rail's control group. */
-    const GAP = 8
+    /** Start the restart; the row reads its own busy and error state. */
+    const press = () => {
+      if (state.phase === 'busy') return
+      state.phase = 'busy'
+      state.error = null
+      restart().catch((reason) => {
+        state.phase = 'idle'
+        state.error = reason instanceof Error ? reason.message : String(reason)
+      })
+    }
 
-    /**
-     * Right offset that clears the rail's control group.
-     *
-     * The right rail is a dockkit pane with a tab strip of its own. Opening it
-     * mounts a split glyph and seats fullscreen plus collapse against the
-     * window edge, so a fixed offset lands this button on top of the
-     * fullscreen glyph. The strip's seats are measured instead: sit down just
-     * left of the leftmost one.
-     *
-     * Seats are read even while the rail slides out of the window, which is
-     * what keeps the offset continuous during the close animation; the
-     * `CLOSED_RIGHT` floor takes over once the group has left the corner.
-     *
-     * @returns the offset in pixels, at least `CLOSED_RIGHT`.
-     */
-    const seatRight = () => {
-      const width = window.innerWidth
-      const toggle = document.querySelector('[data-sidebar-right-toggle]')
-      if (toggle === null) return CLOSED_RIGHT
-
-      let left = toggle.getBoundingClientRect().left
-      const strip = toggle.closest('[data-dockkit-strip]') ?? document
-      for (const el of strip.querySelectorAll('[data-dockkit-split-button], [data-sidebar-right-mode]')) {
-        const rect = el.getBoundingClientRect()
-        if (rect.width === 0) continue
-        if (rect.left < left) left = rect.left
+    rt.observe(() => {
+      // The runtime drops a pass that throws, so one bad frame must not cost the
+      // menu row for the rest of the page's life.
+      try {
+        ensureRow(bind, press)
+      } catch (error) {
+        rt.warn('restart menu row failed: ' + String((error && error.message) || error))
       }
-      return Math.max(CLOSED_RIGHT, Math.round(width - left + GAP))
-    }
-
-    /** The node the frame renders only while the rail is closed. */
-    const railMarker = () => document.querySelector('[data-sidebar-right-expand]')
-
-    /** Write the offset; only touches the DOM when the number moved. */
-    const sync = () => {
-      const seat = document.querySelector('.dsh-restart-seat')
-      if (seat === null) return
-      const next = `${seatRight()}px`
-      if (seat.style.right !== next) seat.style.right = next
-    }
-
-    let chase = 0
-
-    /**
-     * Chase the rail while it slides.
-     *
-     * The marker swaps the instant the rail starts moving, so sampling the
-     * control group's rect for a beat afterwards makes the seat travel with
-     * the buttons. Measuring once leaves the seat parked on its old offset
-     * until the slide ends and then teleports it; measuring for the whole
-     * slide is what reads as one smooth move.
-     *
-     * @param ms - how long the rail is expected to keep moving.
-     */
-    const follow = (ms) => {
-      if (chase !== 0) cancelAnimationFrame(chase)
-      const until = performance.now() + ms
-      const tick = () => {
-        sync()
-        chase = performance.now() < until ? requestAnimationFrame(tick) : 0
-      }
-      tick()
-    }
-
-    let railClosed = railMarker() !== null
-    const watcher = new MutationObserver(() => {
-      const closed = railMarker() !== null
-      if (closed === railClosed) return
-      railClosed = closed
-      follow(900)
     })
-    watcher.observe(document.body, { childList: true, subtree: true })
-    window.addEventListener('resize', () => follow(400))
-
-    // The marker only swaps once React commits, which is already after the
-    // press. Starting the chase on the press itself means the seat samples on
-    // the frame the rail starts to move, not on the frame after.
-    const RAIL_SEATS = '[data-sidebar-right-expand], [data-sidebar-right-toggle], [data-sidebar-right-mode], [data-dockkit-split-button]'
-    document.addEventListener('pointerdown', (event) => {
-      const target = event.target
-      if (target instanceof Element && target.closest(RAIL_SEATS) !== null) follow(900)
-    }, true)
-
-    // The seat is mounted after this half runs; give it the first layout.
-    follow(600)
-
-    ctx.slots.inject('shell.overlay', () => ctx.slots.register({
-      name: 'shell.overlay',
-      id: 'dsh-restart.seat',
-      order: 100,
-      locale: NS,
-      inject: () => ({ restart }),
-    }, RestartButton))
   }
 
-  rt.ctx.inject(['slots', 'locale', 'uiSession'], (scope) => install(scope))
+  rt.ctx.inject(['locale', 'uiSession'], (scope) => install(scope))
 }
