@@ -382,10 +382,12 @@ window.__ModuleLoader__.load({
       const scroller = useRef(null)
       const messages = chat ? chat.messages : []
       const running = sending || (chat ? chat.running : false)
+      const lastBlocks = messages.length > 0 ? (messages[messages.length - 1].blocks || []).length : 0
+      const lastText = messages.length > 0 ? (messages[messages.length - 1].text || '').length : 0
       useEffect(() => {
         const node = scroller.current
         if (node !== null) node.scrollTop = node.scrollHeight
-      }, [messages.length, running])
+      }, [messages.length, running, lastBlocks, lastText])
       return h('section', { className: 'dl-panel dl-chat' + (embedded ? ' is-embedded' : '') },
         h('div', { className: 'dl-panel-head' },
           h('h3', null, '对话'),
@@ -441,16 +443,20 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState('')
       const [drawer, setDrawer] = useState('')
       const mounted = useRef(true)
+      const stateSeq = useRef(0)
+      const chatSeq = useRef(0)
       const closeResult = useCallback(() => setResult(null), [])
 
       useEffect(() => { ensureStyle(); return () => { mounted.current = false } }, [])
 
       const refresh = useCallback(async () => {
+        const token = ++stateSeq.current
         try {
           const next = await client.state()
-          if (mounted.current) setState(next)
+          if (!mounted.current || token !== stateSeq.current) return
+          setState(next)
         } catch (problem) {
-          if (mounted.current) setError(problem instanceof Error ? problem.message : String(problem))
+          if (mounted.current && token === stateSeq.current) setError(problem instanceof Error ? problem.message : String(problem))
         }
       }, [client])
 
@@ -462,9 +468,11 @@ window.__ModuleLoader__.load({
       }, [refresh, state !== null && state.scanning])
 
       const pollChat = useCallback(async () => {
+        const token = ++chatSeq.current
         try {
           const next = await client.chat()
-          if (mounted.current) setChat(next)
+          if (!mounted.current || token !== chatSeq.current) return
+          setChat(next)
         } catch { /* keep the last view */ }
       }, [client])
 
@@ -484,9 +492,9 @@ window.__ModuleLoader__.load({
           await client.chatSend(text)
           await pollChat()
         } catch (problem) {
-          setError(problem instanceof Error ? problem.message : String(problem))
+          if (mounted.current) setError(problem instanceof Error ? problem.message : String(problem))
         } finally {
-          setSending(false)
+          if (mounted.current) setSending(false)
         }
       }
 
