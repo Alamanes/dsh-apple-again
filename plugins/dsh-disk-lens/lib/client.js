@@ -90,8 +90,11 @@ window.__ModuleLoader__.load({
       plan(ids) { return this.post('/plan', { ids }) }
       clean(ids) { return this.post('/clean', { ids }) }
       settings(patch) { return this.post('/settings', patch) }
-      chat() { return this.get('/chat/state') }
+      chat() { return this.get('/chat') }
       chatSend(text) { return this.post('/chat/send', { text }) }
+      chatCancel() { return this.post('/chat/cancel', {}) }
+      chatClear() { return this.post('/chat/clear', {}) }
+      models() { return this.get('/models') }
 
     }
 
@@ -271,7 +274,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function SettingsPanel({ settings, rules, onPatch, busy }) {
+    function SettingsPanel({ settings, rules, models, onPatch, busy }) {
       const disabled = new Set(settings.disabledRules || [])
       const enabledCount = rules.filter((rule) => !disabled.has(rule.id)).length
       return h('section', { className: 'dl-panel' },
@@ -280,6 +283,7 @@ window.__ModuleLoader__.load({
           h('span', null, '规则 ' + enabledCount + ' / ' + rules.length)
         ),
         h('div', { className: 'dl-settings' },
+          h(ModelPicker, { models, chatModel: settings.chatModel, onPatch, busy }),
           h('div', { className: 'dl-switch' },
             h('div', null, '允许直接删除', h('small', null, '关闭时 delete 类建议会被拒绝，其余清理都进废纸篓。')),
             h('button', {
@@ -375,6 +379,52 @@ window.__ModuleLoader__.load({
 
     /* ---------- page ---------- */
 
+    function ModelPicker({ models, chatModel, onPatch, busy }) {
+      const providers = (models && models.providers) || []
+      if (providers.length === 0) {
+        return h('div', { className: 'dl-switch' }, h('div', null, '对话模型', h('small', null, '没有可用的模型提供商。')))
+      }
+      const current = chatModel || (models && models.selection) || null
+      const provider = providers.find((item) => item.id === (current && current.provider)) || providers[0]
+      const model = provider.models.find((item) => item.id === (current && current.model)) || provider.models[0]
+      const efforts = (model && model.efforts) || []
+      const effort = (current && current.reasoningEffort) || 'low'
+      const commit = (nextProvider, nextModel, nextEffort) => {
+        onPatch({ chatModel: { provider: nextProvider.id, model: nextModel.id, reasoningEffort: nextEffort } })
+      }
+      return h('div', { className: 'dl-switch is-column' },
+        h('div', null, '对话模型', h('small', null, '面板里的对话用它，与主会话互不影响。')),
+        h('div', { className: 'dl-model-row' },
+          h('select', {
+            value: provider.id,
+            disabled: busy,
+            onChange: (event) => {
+              const next = providers.find((item) => item.id === event.target.value) || providers[0]
+              const first = next.models[0]
+              commit(next, first, (first.efforts[0] && first.efforts[0].id) || 'low')
+            },
+          }, providers.map((item) => h('option', { key: item.id, value: item.id }, item.name))),
+          h('select', {
+            value: model ? model.id : '',
+            disabled: busy,
+            onChange: (event) => {
+              const next = provider.models.find((item) => item.id === event.target.value) || model
+              commit(provider, next, (next.efforts[0] && next.efforts[0].id) || 'low')
+            },
+          }, provider.models.map((item) => h('option', { key: item.id, value: item.id }, item.name)))
+        ),
+        efforts.length > 0
+          ? h('div', { className: 'dl-tabs' }, efforts.map((item) => h('button', {
+              key: item.id,
+              className: 'dl-tab',
+              'data-on': effort === item.id,
+              disabled: busy,
+              onClick: () => commit(provider, model, item.id),
+            }, item.name)))
+          : null
+      )
+    }
+
     function Drawer({ title, onClose, children }) {
       const closeRef = useRef(null)
       useEffect(() => {
@@ -465,6 +515,7 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = useState('idle')
       const [error, setError] = useState('')
       const [drawer, setDrawer] = useState('')
+      const [models, setModels] = useState(null)
       const mounted = useRef(true)
       const stateSeq = useRef(0)
       const chatSeq = useRef(0)
@@ -510,6 +561,11 @@ window.__ModuleLoader__.load({
         const timer = setInterval(() => { if (!document.hidden) void pollChat() }, running ? 900 : 2600)
         return () => clearInterval(timer)
       }, [pollChat, chat !== null && chat.running, sending])
+
+      useEffect(() => {
+        if (models !== null) return
+        void client.models().then((next) => { if (mounted.current) setModels(next) }).catch(() => {})
+      }, [client, models])
 
       useEffect(() => {
         const onVisibility = () => {
@@ -685,7 +741,7 @@ window.__ModuleLoader__.load({
         drawer === 'settings'
           ? h(Drawer, { title: '设置', onClose: () => setDrawer('') },
               h('div', null,
-                h(SettingsPanel, { settings, rules, onPatch: patchSettings, busy: busy === 'settings' }),
+                h(SettingsPanel, { settings, rules, models, onPatch: patchSettings, busy: busy === 'settings' }),
                 h('p', { className: 'dl-drawer-note' }, '模型与思考强度在主对话的模型菜单里选；这里的对话就是当前会话。')
               )
             )
