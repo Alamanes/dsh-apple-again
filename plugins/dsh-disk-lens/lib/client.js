@@ -89,6 +89,11 @@ window.__ModuleLoader__.load({
       plan(ids) { return this.post('/plan', { ids }) }
       clean(ids) { return this.post('/clean', { ids }) }
       settings(patch) { return this.post('/settings', patch) }
+      chat() { return this.get('/chat') }
+      chatSend(text) { return this.post('/chat/send', { text }) }
+      chatCancel() { return this.post('/chat/cancel', {}) }
+      chatClear() { return this.post('/chat/clear', {}) }
+      models() { return this.get('/models') }
     }
 
     /* ---------- capacity bar ---------- */
@@ -263,7 +268,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function SettingsPanel({ settings, rules, onPatch, busy }) {
+    function SettingsPanel({ settings, rules, models, onPatch, busy }) {
       const disabled = new Set(settings.disabledRules || [])
       const enabledCount = rules.filter((rule) => !disabled.has(rule.id)).length
       return h('section', { className: 'dl-panel' },
@@ -272,6 +277,7 @@ window.__ModuleLoader__.load({
           h('span', null, '规则 ' + enabledCount + ' / ' + rules.length)
         ),
         h('div', { className: 'dl-settings' },
+          h(ModelPicker, { models, chatModel: settings.chatModel, onPatch, busy }),
           h('div', { className: 'dl-switch' },
             h('div', null, '允许直接删除', h('small', null, '关闭时 delete 类建议会被拒绝，其余清理都进废纸篓。')),
             h('button', { 'data-on': settings.allowDelete ? 'true' : 'false', disabled: busy, onClick: () => onPatch({ allowDelete: !settings.allowDelete }) }, h('i'))
@@ -356,6 +362,117 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /* ---------- chat ---------- */
+
+    function ChatPanel({ chat, input, onInput, onSend, onStop, onClear }) {
+      const scroller = useRef(null)
+      const messages = chat ? chat.messages : []
+      const running = chat ? chat.running : false
+      const error = chat ? chat.error : ''
+      const modelName = chat && chat.model ? String(chat.model.model).split('/').pop() : '未选模型'
+
+      useEffect(() => {
+        const node = scroller.current
+        if (node !== null) node.scrollTop = node.scrollHeight
+      }, [messages.length, running, (messages[messages.length - 1] || {}).blocks])
+
+      return h('section', { className: 'dl-panel dl-chat' },
+        h('div', { className: 'dl-panel-head' },
+          h('h3', null, '对话'),
+          h('span', null, modelName)
+        ),
+        h('div', { className: 'dl-chat-log', ref: scroller },
+          messages.length === 0
+            ? h('div', { className: 'dl-empty' }, '问一句磁盘上的事。模型可以调用扫描、读快照、提交建议，面板会跟着更新。')
+            : messages.map((message) => h('div', { key: message.id, className: 'dl-msg is-' + message.role },
+                message.role === 'user'
+                  ? h('div', { className: 'dl-bubble' }, message.text)
+                  : h('div', { className: 'dl-bubble' },
+                      (message.blocks || []).map((block, index) => {
+                        if (block.type === 'text') return h('p', { key: 'b' + index, className: 'dl-msg-text' }, block.text)
+                        if (block.type === 'tool') {
+                          return h('div', { key: 'b' + index, className: 'dl-tool is-' + block.state },
+                            h('span', { className: 'dl-tool-name' }, block.name),
+                            h('span', { className: 'dl-tool-detail' }, block.detail || (block.state === 'running' ? '运行中…' : ''))
+                          )
+                        }
+                        return null
+                      }),
+                      message.streaming ? h('span', { className: 'dl-cursor' }) : null
+                    )
+              ))
+        ),
+        error !== '' ? h('div', { className: 'dl-chat-error' }, error) : null,
+        h('div', { className: 'dl-chat-input' },
+          h('textarea', {
+            value: input,
+            rows: 2,
+            placeholder: '让模型分析磁盘，或问某个目录为什么这么大…',
+            onChange: (event) => onInput(event.target.value),
+            onKeyDown: (event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault()
+                onSend()
+              }
+            },
+          }),
+          h('div', { className: 'dl-chat-actions' },
+            h('button', { className: 'dl-btn is-quiet', disabled: messages.length === 0 || running, onClick: onClear }, '清空'),
+            running
+              ? h('button', { className: 'dl-btn is-quiet', onClick: onStop }, '停止')
+              : h('button', { className: 'dl-btn is-primary', disabled: input.trim() === '', onClick: onSend }, '发送')
+          )
+        )
+      )
+    }
+
+    function ModelPicker({ models, chatModel, onPatch, busy }) {
+      const providers = (models && models.providers) || []
+      const current = chatModel || (models && models.selection) || null
+      const provider = providers.find((item) => item.id === (current && current.provider)) || providers[0]
+      const model = provider ? provider.models.find((item) => item.id === (current && current.model)) || provider.models[0] : null
+      const efforts = (model && model.efforts) || []
+      const effort = (current && current.reasoningEffort) || 'low'
+
+      if (providers.length === 0) return h('div', { className: 'dl-switch' }, h('div', null, '对话模型', h('small', null, '没有可用的模型提供商。')))
+
+      const commit = (nextProvider, nextModel, nextEffort) => {
+        onPatch({ chatModel: { provider: nextProvider.id, model: nextModel.id, reasoningEffort: nextEffort } })
+      }
+
+      return h('div', { className: 'dl-switch is-column' },
+        h('div', null, '对话模型', h('small', null, '面板里的对话用这个模型；与主会话的模型互不影响。')),
+        h('div', { className: 'dl-model-row' },
+          h('select', {
+            value: provider.id,
+            disabled: busy,
+            onChange: (event) => {
+              const next = providers.find((item) => item.id === event.target.value) || providers[0]
+              const first = next.models[0]
+              commit(next, first, (first.efforts[0] && first.efforts[0].id) || 'low')
+            },
+          }, providers.map((item) => h('option', { key: item.id, value: item.id }, item.name))),
+          h('select', {
+            value: model ? model.id : '',
+            disabled: busy,
+            onChange: (event) => {
+              const next = provider.models.find((item) => item.id === event.target.value) || model
+              commit(provider, next, (next.efforts[0] && next.efforts[0].id) || 'low')
+            },
+          }, provider.models.map((item) => h('option', { key: item.id, value: item.id }, item.name)))
+        ),
+        efforts.length > 0
+          ? h('div', { className: 'dl-tabs' }, efforts.map((item) => h('button', {
+              key: item.id,
+              className: 'dl-tab',
+              'data-on': effort === item.id,
+              disabled: busy,
+              onClick: () => commit(provider, model, item.id),
+            }, item.name)))
+          : null
+      )
+    }
+
     /* ---------- page ---------- */
 
     function DiskLensPage({ api }) {
@@ -367,6 +484,9 @@ window.__ModuleLoader__.load({
       const [result, setResult] = useState(null)
       const [busy, setBusy] = useState('idle')
       const [error, setError] = useState('')
+      const [chat, setChat] = useState(null)
+      const [chatInput, setChatInput] = useState('')
+      const [models, setModels] = useState(null)
       const mounted = useRef(true)
       const cleanedUp = useCallback(() => setResult(null), [])
 
@@ -388,6 +508,51 @@ window.__ModuleLoader__.load({
         const timer = setInterval(() => { void refresh() }, busyPoll ? POLL_BUSY_MS : POLL_IDLE_MS)
         return () => clearInterval(timer)
       }, [refresh, state !== null && state.scanning])
+
+      const chatRunning = chat !== null && chat.running
+
+      useEffect(() => {
+        let alive = true
+        const tick = async () => {
+          try {
+            const next = await client.chat()
+            if (alive && mounted.current) setChat(next)
+          } catch { /* keep the last view */ }
+        }
+        void tick()
+        const timer = setInterval(tick, chatRunning ? 450 : 1600)
+        return () => { alive = false; clearInterval(timer) }
+      }, [client, chatRunning])
+
+      useEffect(() => {
+        if (models !== null) return
+        void client.models().then((next) => { if (mounted.current) setModels(next) }).catch(() => {})
+      }, [client, models])
+
+      const sendChat = async () => {
+        const text = chatInput.trim()
+        if (text === '' || (chat !== null && chat.running)) return
+        setChatInput('')
+        try {
+          await client.chatSend(text)
+          const next = await client.chat()
+          if (mounted.current) setChat(next)
+        } catch (problem) {
+          setError(problem instanceof Error ? problem.message : String(problem))
+        }
+      }
+
+      const stopChat = async () => {
+        try { await client.chatCancel() } catch { /* the poll shows the truth */ }
+      }
+
+      const clearChat = async () => {
+        try {
+          await client.chatClear()
+          const next = await client.chat()
+          if (mounted.current) setChat(next)
+        } catch { /* ignore */ }
+      }
 
       const snapshot = state ? state.snapshot : null
       const scanning = state ? state.scanning : false
@@ -544,7 +709,8 @@ window.__ModuleLoader__.load({
 
         h('div', { className: 'dl-grid dl-enter' },
           h(CategoryList, { snapshot, active, onSelect: setActive }),
-          h(SuggestionList, { snapshot, selected, onToggle: toggle, allowDelete: settings.allowDelete })
+          h(SuggestionList, { snapshot, selected, onToggle: toggle, allowDelete: settings.allowDelete }),
+          h(ChatPanel, { chat, input: chatInput, onInput: setChatInput, onSend: sendChat, onStop: stopChat, onClear: clearChat })
         ),
 
         candidates.length > 0
@@ -575,7 +741,7 @@ window.__ModuleLoader__.load({
 
         h('div', { className: 'dl-bottom dl-enter' },
           h(AuditPanel, { audit }),
-          h(SettingsPanel, { settings, rules, onPatch: patchSettings, busy: busy === 'settings' })
+          h(SettingsPanel, { settings, rules, models, onPatch: patchSettings, busy: busy === 'settings' })
         ),
 
         h('footer', { className: 'dl-foot dl-enter' }, '规则表在插件目录的 src/host/rules.js，改完刷新即生效。在对话里说「分析一下磁盘」，模型会调用 disk_scan / disk_propose。'),
