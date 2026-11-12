@@ -491,7 +491,7 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         void refresh()
         const busyPoll = state !== null && state.scanning
-        const timer = setInterval(() => { void refresh() }, busyPoll ? 900 : 3000)
+        const timer = setInterval(() => { if (!document.hidden) void refresh() }, busyPoll ? 900 : 3000)
         return () => clearInterval(timer)
       }, [refresh, state !== null && state.scanning])
 
@@ -507,9 +507,19 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         void pollChat()
         const running = chat !== null && (chat.running || sending)
-        const timer = setInterval(() => { void pollChat() }, running ? 900 : 2600)
+        const timer = setInterval(() => { if (!document.hidden) void pollChat() }, running ? 900 : 2600)
         return () => clearInterval(timer)
       }, [pollChat, chat !== null && chat.running, sending])
+
+      useEffect(() => {
+        const onVisibility = () => {
+          if (document.hidden) return
+          void refresh()
+          void pollChat()
+        }
+        document.addEventListener('visibilitychange', onVisibility)
+        return () => document.removeEventListener('visibilitychange', onVisibility)
+      }, [refresh, pollChat])
 
       const sendChat = async () => {
         const text = chatInput.trim()
@@ -567,7 +577,7 @@ window.__ModuleLoader__.load({
         setError('')
         setResult(null)
         if (pending === null) setPending(null)
-        try { await client.scan(); await refresh() } catch (problem) { setError(problem instanceof Error ? problem.message : String(problem)) }
+        try { await client.scan(); await refresh() } catch (problem) { if (mounted.current) setError(problem instanceof Error ? problem.message : String(problem)) }
       }
       const stopScan = async () => { try { await client.cancel() } catch { /* next poll shows */ } void refresh() }
 
@@ -588,7 +598,7 @@ window.__ModuleLoader__.load({
             bytes: steps.reduce((sum, step) => sum + (step.bytes || 0), 0),
             hasDelete: steps.some((step) => step.method === 'delete'),
           })
-        } catch (problem) { setError(problem instanceof Error ? problem.message : String(problem)) }
+        } catch (problem) { if (mounted.current) setError(problem instanceof Error ? problem.message : String(problem)) }
         finally { setBusy('idle') }
       }
 
@@ -605,7 +615,7 @@ window.__ModuleLoader__.load({
           setResult({ freed: done.freed || 0, results: done.results || [] })
           setSelected(new Set()); setPending(null)
           await refresh()
-        } catch (problem) { setError(problem instanceof Error ? problem.message : String(problem)) }
+        } catch (problem) { if (mounted.current) setError(problem instanceof Error ? problem.message : String(problem)) }
         finally { setBusy('idle') }
       }
 

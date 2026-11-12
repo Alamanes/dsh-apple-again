@@ -147,7 +147,7 @@
 .dl-cat-name { font-weight: 550; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .dl-cat-note { color: var(--dl-faint); font-size: 11.5px; margin-top: 1px; }
 .dl-cat-size { font-family: var(--dl-mono); font-variant-numeric: tabular-nums; font-size: 12.5px; color: var(--dl-dim); align-self: center; }
-.dl-cat-items { grid-column: 2 / -1; display: flex; flex-direction: column; gap: 3px; margin-top: 2px; }
+.dl-cat-items { display: flex; flex-direction: column; gap: 3px; margin-top: 2px; }
 .dl-cat-item { display: flex; justify-content: space-between; gap: 12px; font-size: 11.5px; color: var(--dl-dim); }
 .dl-cat-item b { font-weight: 450; font-family: var(--dl-mono); font-variant-numeric: tabular-nums; }
 .dl-cat-item.is-denied { color: var(--dl-hot); }
