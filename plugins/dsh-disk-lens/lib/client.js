@@ -89,123 +89,72 @@ window.__ModuleLoader__.load({
       settings(patch) { return this.post('/settings', patch) }
     }
 
-    /* ---------- sand map ---------- */
+    /* ---------- capacity bar ---------- */
 
-    function sandPath(x0, x1, baseY, height, seed) {
-      const span = Math.max(1, x1 - x0)
-      const top = baseY - height
-      const steps = Math.max(4, Math.min(16, Math.round(span / 34)))
-      const points = []
-      for (let i = 0; i <= steps; i += 1) {
-        const t = i / steps
-        const x = x0 + span * t
-        const wave = Math.sin(t * Math.PI) * 0.5
-        const grain = Math.sin((t * 7.3 + seed) * 2.1) * 0.06 + Math.sin((t * 3.1 + seed) * 4.7) * 0.03
-        const y = top + height * (1 - (0.62 * wave + grain + 0.12))
-        points.push([x, y])
-      }
-      const head = points.map((point, index) => (index === 0 ? 'M' : 'L') + point[0].toFixed(1) + ' ' + point[1].toFixed(1)).join(' ')
-      return head + ' L' + x1.toFixed(1) + ' ' + baseY + ' L' + x0.toFixed(1) + ' ' + baseY + ' Z'
-    }
-
-    function SandMap({ snapshot, scanning, progress, active, onSelect }) {
-      const width = 1000
-      const baseY = 224
-      const top = 40
-      const total = snapshot ? snapshot.disk.total : 1
+    function CapacityBar({ snapshot, scanning, progress, active, onSelect }) {
+      const total = snapshot ? snapshot.disk.total : 0
       const free = snapshot ? snapshot.disk.free : 0
-      const used = Math.max(0, total - free)
-      const categories = (snapshot ? snapshot.categories : []).filter((category) => category.bytes > 0)
-      const growable = categories.slice().sort((a, b) => b.bytes - a.bytes)
-      const sumUsed = growable.reduce((sum, category) => sum + category.bytes, 0) || used || 1
+      const used = snapshot ? snapshot.disk.used : 0
+      const freePct = total > 0 ? (free / total) * 100 : 100
+      const categories = snapshot
+        ? snapshot.categories.slice().filter((category) => category.bytes > 0).sort((a, b) => b.bytes - a.bytes)
+        : []
+      const accounted = categories.reduce((sum, category) => sum + category.bytes, 0)
+      const rest = snapshot ? Math.max(0, used - accounted) : 0
+      const segments = categories.map((category) => ({
+        id: category.id,
+        name: category.name,
+        family: category.family,
+        bytes: category.bytes,
+        percent: total > 0 ? (category.bytes / total) * 100 : 0,
+      }))
+      if (rest > 0) segments.push({ id: '__rest', name: '其他已用', family: 'system', bytes: rest, percent: total > 0 ? (rest / total) * 100 : 0 })
+      const hasData = snapshot !== null && total > 0
 
-      const pad = 26
-      const rockWidth = pad
-      const available = width - pad * 2
-      const freeShare = total > 0 ? Math.max(0, Math.min(0.85, free / total)) : 0.35
-      const usedWidth = available * (1 - freeShare)
-      const freeWidth = available - usedWidth
-
-      let cursor = pad
-      const stones = []
-      if (growable.length > 0) {
-        for (const category of growable) {
-          const share = category.bytes / sumUsed
-          const stoneWidth = Math.max(14, usedWidth * share)
-          const height = Math.max(26, Math.min(baseY - top - 8, 34 + (baseY - top - 40) * Math.min(1, Math.pow(share, 0.62))))
-          stones.push({ category, x0: cursor, x1: cursor + stoneWidth, height })
-          cursor += stoneWidth
-        }
-      } else if (used > 0) {
-        stones.push({ category: { id: 'used', name: '已用', family: 'system', bytes: used }, x0: cursor, x1: cursor + usedWidth, height: 120 })
-        cursor += usedWidth
-      }
-
-      const rakeX0 = cursor
-      const rakeWidth = Math.max(freeWidth, pad + available - cursor)
-
-      return h('div', { className: 'dl-map' },
-        h('svg', { viewBox: '0 0 ' + width + ' ' + 258, preserveAspectRatio: 'none', role: 'img', 'aria-label': '磁盘容量沙盘' },
-          h('defs', null,
-            h('pattern', { id: 'dl-grain', width: '6', height: '6', patternUnits: 'userSpaceOnUse' },
-              h('circle', { cx: '2', cy: '2', r: '0.9', fill: 'color-mix(in srgb, var(--dl-ink) 22%, transparent)' })),
-            h('linearGradient', { id: 'dl-fade', x1: '0', y1: '0', x2: '0', y2: '1' },
-              h('stop', { offset: '0', stopColor: 'color-mix(in srgb, var(--dl-ink) 7%, transparent)' }),
-              h('stop', { offset: '1', stopColor: 'rgba(0,0,0,0.22)' }))
+      return h('section', { className: 'dl-map' },
+        h('div', { className: 'dl-map-head' },
+          h('div', { className: 'dl-map-chips' },
+            h('span', { className: 'dl-chip' }, snapshot ? '扫描于 ' + shortDate(snapshot.createdAt) : '还没有扫描'),
+            snapshot ? h('span', { className: 'dl-chip' }, '已用 ' + rmBytes(used) + ' / ' + rmBytes(total)) : null
           ),
-          // raked flat bed for free space
-          h('g', null,
-            h('rect', { x: rakeX0, y: baseY - 6, width: rakeWidth, height: 7, fill: 'color-mix(in srgb, var(--dl-ink) 12%, transparent)' }),
-            Array.from({ length: 14 }).map((_, index) => {
-              const y = baseY - 46 + index * 3.2
-              return h('line', {
-                key: 'rake-' + index,
-                x1: rakeX0 + 6, x2: rakeX0 + rakeWidth - 6, y1: y, y2: y - 16,
-                stroke: 'color-mix(in srgb, var(--dl-ink) 9%, transparent)', strokeWidth: '1.4',
-              })
-            }),
-            h('text', { x: rakeX0 + rakeWidth / 2, y: baseY - 66, textAnchor: 'middle', fill: 'var(--dl-faint)', fontSize: '11', fontFamily: 'var(--dl-mono)' }, '可用 ' + rmBytes(free))
-          ),
-          stones.map((stone, index) => {
-            const color = FAMILY_COLOR[stone.category.family] || 'var(--dl-system)'
-            const isActive = active === stone.category.id
-            return h('g', {
-              key: stone.category.id,
-              className: 'dl-stone' + (isActive ? ' is-active' : ''),
-              onClick: () => onSelect(isActive ? '' : stone.category.id),
-              role: 'button',
-              tabIndex: 0,
-              onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(isActive ? '' : stone.category.id) } },
-            },
-              h('path', { d: sandPath(stone.x0 + 1.5, stone.x1 - 1.5, baseY, stone.height, index * 1.7), fill: color, opacity: isActive ? 1 : 0.88 }),
-              h('path', { d: sandPath(stone.x0 + 1.5, stone.x1 - 1.5, baseY, stone.height, index * 1.7), fill: 'url(#dl-grain)' }),
-              h('path', { d: sandPath(stone.x0 + 1.5, stone.x1 - 1.5, baseY, stone.height, index * 1.7), fill: 'url(#dl-fade)' }),
-              stone.x1 - stone.x0 > 96 ? h('text', {
-                x: (stone.x0 + stone.x1) / 2, y: baseY - stone.height - 12,
-                textAnchor: 'middle', fill: 'var(--dl-dim)', fontSize: '11.5', fontFamily: 'var(--dl-mono)',
-              }, rmBytes(stone.category.bytes)) : null,
-              stone.x1 - stone.x0 > 132 ? h('text', {
-                x: (stone.x0 + stone.x1) / 2, y: baseY + 18,
-                textAnchor: 'middle', fill: 'var(--dl-faint)', fontSize: '11',
-              }, stone.category.name) : null
+          scanning && progress && progress.total > 0
+            ? h('span', { className: 'dl-chip' }, '正在测量 ' + progress.done + ' / ' + progress.total)
+            : null
+        ),
+        hasData
+          ? h('div', { className: 'dl-bar' + (scanning ? ' is-scanning' : '') },
+              segments.map((segment) => h('button', {
+                key: segment.id,
+                type: 'button',
+                className: 'dl-seg' + (active === segment.id ? ' is-active' : ''),
+                style: { flexGrow: Math.max(segment.percent, 0.15), background: FAMILY_COLOR[segment.family] || 'var(--dl-system)' },
+                title: segment.name + ' · ' + rmBytes(segment.bytes) + ' · ' + segment.percent.toFixed(1) + '%',
+                onClick: () => onSelect(active === segment.id ? '' : segment.id),
+              })),
+              h('div', { className: 'dl-seg is-free', style: { flexGrow: Math.max(freePct, 0.15) }, title: '可用 ' + rmBytes(free) + ' · ' + freePct.toFixed(1) + '%' })
             )
-          })
-        ),
-        h('div', { className: 'dl-map-meta' },
-          h('span', { className: 'dl-chip' }, snapshot ? '扫描于 ' + shortDate(snapshot.createdAt) : '还没有扫描'),
-          snapshot ? h('span', { className: 'dl-chip' }, '已用 ' + rmBytes(used) + ' / ' + rmBytes(total)) : null
-        ),
-        h('div', { className: 'dl-map-legend' },
-          h('span', null, h('i', { style: { background: 'var(--dl-content)' } }), '你的内容'),
-          h('span', null, h('i', { style: { background: 'var(--dl-tools)' } }), '工具'),
-          h('span', null, h('i', { style: { background: 'var(--dl-caches)' } }), '缓存'),
-          h('span', null, h('i', { style: { background: 'var(--dl-system)' } }), '系统')
-        ),
-        scanning ? h('div', { className: 'dl-scanline' }) : null,
-        scanning && progress && progress.total > 0 ? h('div', { className: 'dl-empty', style: { alignContent: 'end', paddingBottom: '18px' } },
-          h('span', null, '正在测量 ' + progress.done + ' / ' + progress.total + ' · ' + (progress.path || ''))
-        ) : null,
-        !snapshot && !scanning ? h('div', { className: 'dl-map-empty' }, '点「开始扫描」，用规则表量一遍磁盘。') : null
+          : h('div', { className: 'dl-bar-empty' }, scanning ? '正在测量…' : '点「开始扫描」，用规则表量一遍磁盘。'),
+        hasData
+          ? h('div', { className: 'dl-legend' },
+              segments.map((segment) => h('button', {
+                key: 'legend-' + segment.id,
+                type: 'button',
+                className: 'dl-legend-row' + (active === segment.id ? ' is-active' : ''),
+                onClick: () => onSelect(active === segment.id ? '' : segment.id),
+              },
+                h('i', { className: 'dl-legend-dot', style: { background: FAMILY_COLOR[segment.family] || 'var(--dl-system)' } }),
+                h('span', { className: 'dl-legend-name' }, segment.name),
+                h('span', { className: 'dl-legend-size' }, rmBytes(segment.bytes)),
+                h('span', { className: 'dl-legend-pct' }, segment.percent >= 0.5 ? segment.percent.toFixed(0) + '%' : '<1%')
+              )),
+              h('div', { className: 'dl-legend-row is-free' },
+                h('i', { className: 'dl-legend-dot' }),
+                h('span', { className: 'dl-legend-name' }, '可用'),
+                h('span', { className: 'dl-legend-size' }, rmBytes(free)),
+                h('span', { className: 'dl-legend-pct' }, freePct.toFixed(0) + '%')
+              )
+            )
+          : null
       )
     }
 
@@ -416,7 +365,7 @@ window.__ModuleLoader__.load({
 
         error !== '' ? h('div', { className: 'dl-error' }, error) : null,
 
-        h(SandMap, { snapshot, scanning, progress: state ? state.progress : null, active, onSelect: setActive }),
+        h(CapacityBar, { snapshot, scanning, progress: state ? state.progress : null, active, onSelect: setActive }),
 
         h('div', { className: 'dl-grid' },
           h(CategoryList, { snapshot, active, onSelect: setActive }),
