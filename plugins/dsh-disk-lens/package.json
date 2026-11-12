@@ -1,9 +1,9 @@
 {
   "name": "dsh-disk-lens",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "private": true,
   "icon": "./icon.png",
-  "description": "磁盘透视面板：规则扫描、沙盘容量图、可审阅的清理建议，默认全部进废纸篓。",
+  "description": "盘面：右侧边栏的只读磁盘面板，扫描与清理都在主对话里由模型调用工具完成。",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Alamanes/dsh-apple-again.git",
@@ -15,7 +15,8 @@
     "deepseek-harness",
     "disk",
     "cleanup",
-    "storage"
+    "storage",
+    "sidebar"
   ],
   "type": "module",
   "main": "src/index.js",
@@ -51,7 +52,7 @@
       "platform": "web",
       "immediately": true,
       "inject": [
-        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
         "@deepseek-ai/dsh-client-ui-layout",
         "@deepseek-ai/dsh-client-ui-theme",
         "@deepseek-ai/dsh-client-runtime",

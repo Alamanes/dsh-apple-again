@@ -10,7 +10,11 @@ export const FAMILIES = [
 ]
 
 /** housekeeping candidates the rules may attach to a category */
-const CACHE_COMMAND = "find ~/Library/Caches -mindepth 1 -maxdepth 1 ! -name 'com.apple.*' -exec rm -rf {} + 2>/dev/null; rm -rf ~/.cache/* 2>/dev/null"
+const CACHE_COMMAND = "find \"$HOME/Library/Caches\" -mindepth 1 -maxdepth 1 ! -name 'com.apple.*' -exec trash {} + 2>/dev/null; trash \"$HOME/.cache\"/* 2>/dev/null"
+const EMPTY_TRASH_COMMAND = "osascript -e 'tell application \"Finder\" to empty trash'"
+
+/** A path as a command the user can paste: ~ expands through $HOME, spaces stay quoted. */
+const trashCommand = (path) => 'trash "' + String(path).replace(/^~/, '$HOME') + '"'
 
 export const RULES = [
   {
@@ -23,10 +27,11 @@ export const RULES = [
       { label: '~/.cache', path: '~/.cache' },
       { label: '~/Library/Logs', path: '~/Library/Logs' },
     ],
-    cleanup: () => [{
+    cleanup: (measured) => [{
       id: 'app-caches:clear',
       label: '应用缓存（不含 Apple 自身）',
       why: '缓存被重新生成，删除不影响数据，只是下次打开稍慢；打开中的应用可能正在写缓存，先关掉它们。',
+      bytes: measured.get('~/Library/Caches') ?? 0,
       safety: 'review',
       method: 'command',
       command: CACHE_COMMAND,
@@ -49,7 +54,7 @@ export const RULES = [
       const out = []
       const add = (id, label, path) => {
         const size = measured.get(path) ?? 0
-        if (size > 0) out.push({ id: 'dev-caches:' + id, label, why: '下载缓存，重新安装时会再次拉取。', bytes: size, safety: 'safe', method: 'trash', paths: [path] })
+        if (size > 0) out.push({ id: 'dev-caches:' + id, label, why: '下载缓存，重新安装时会再次拉取。', bytes: size, safety: 'safe', method: 'trash', paths: [path], command: trashCommand(path) })
       }
       add('npm', 'npm 缓存', '~/.npm/_cacache')
       add('pnpm', 'pnpm store', '~/Library/pnpm/store')
@@ -70,7 +75,7 @@ export const RULES = [
     ],
     cleanup: (measured) => {
       const size = measured.get('~/Library/Developer/Xcode/DerivedData') ?? 0
-      return size > 0 ? [{ id: 'build-caches:derived', label: 'Xcode DerivedData', why: '构建中间产物，下次编译重新生成。', bytes: size, safety: 'safe', method: 'trash', paths: ['~/Library/Developer/Xcode/DerivedData'] }] : []
+      return size > 0 ? [{ id: 'build-caches:derived', label: 'Xcode DerivedData', why: '构建中间产物，下次编译重新生成。', bytes: size, safety: 'safe', method: 'trash', paths: ['~/Library/Developer/Xcode/DerivedData'], command: trashCommand('~/Library/Developer/Xcode/DerivedData') }] : []
     },
   },
   {
@@ -81,7 +86,7 @@ export const RULES = [
     items: [{ label: '废纸篓', path: '~/.Trash' }],
     cleanup: (measured) => {
       const size = measured.get('~/.Trash') ?? 0
-      return size > 0 ? [{ id: 'trash:empty', label: '清空废纸篓', why: '里面的文件已经删过，清空后空间才真正释放。', bytes: size, safety: 'review', method: 'command', command: "osascript -e 'tell application \"Finder\" to empty trash'" }] : []
+      return size > 0 ? [{ id: 'trash:empty', label: '清空废纸篓', why: '里面的文件已经删过，清空后空间才真正释放。', bytes: size, safety: 'review', method: 'command', command: EMPTY_TRASH_COMMAND }] : []
     },
   },
   {
@@ -159,7 +164,7 @@ export const RULES = [
     items: [{ label: 'iOS 备份', path: '~/Library/Application Support/MobileSync/Backup' }],
     cleanup: (measured) => {
       const size = measured.get('~/Library/Application Support/MobileSync/Backup') ?? 0
-      return size > 0 ? [{ id: 'device-backups:old', label: '旧的 iOS 备份', why: '旧设备的备份通常不再需要，但删除后这台电脑上就没了。', bytes: size, safety: 'careful', method: 'trash', paths: ['~/Library/Application Support/MobileSync/Backup'] }] : []
+      return size > 0 ? [{ id: 'device-backups:old', label: '旧的 iOS 备份', why: '旧设备的备份通常不再需要，但删除后这台电脑上就没了。', bytes: size, safety: 'careful', method: 'trash', paths: ['~/Library/Application Support/MobileSync/Backup'], command: trashCommand('~/Library/Application Support/MobileSync/Backup') }] : []
     },
   },
   {
@@ -175,7 +180,7 @@ export const RULES = [
       const out = []
       for (const [id, label, path] of [['ollama', 'Ollama 模型', '~/.ollama'], ['lmstudio', 'LM Studio 模型', '~/.lmstudio']]) {
         const size = measured.get(path) ?? 0
-        if (size > 0) out.push({ id: 'local-ai:' + id, label, why: '模型可以重新下载，但文件很大、下载很慢。', bytes: size, safety: 'review', method: 'trash', paths: [path] })
+        if (size > 0) out.push({ id: 'local-ai:' + id, label, why: '模型可以重新下载，但文件很大、下载很慢。', bytes: size, safety: 'review', method: 'trash', paths: [path], command: trashCommand(path) })
       }
       return out
     },
@@ -250,6 +255,36 @@ export const RULES = [
       { label: 'Steam', path: '~/Library/Application Support/Steam' },
       { label: 'Epic', path: '~/Library/Application Support/Epic' },
     ],
+  },
+  {
+    id: 'homebrew',
+    family: 'tools',
+    name: 'Homebrew',
+    note: '/opt 下的软件与下载缓存。',
+    readOnly: true,
+    items: [{ label: '/opt', path: '/opt' }],
+  },
+  {
+    id: 'toolchains',
+    family: 'tools',
+    name: '工具链与代理',
+    note: 'Rust、.NET 与 CLI 代理的本地数据。',
+    items: [
+      { label: 'Rust', path: '~/.rustup' },
+      { label: '.NET', path: '~/.dotnet' },
+      { label: 'Harness', path: '~/.dsh' },
+      { label: 'Codex', path: '~/.codex' },
+      { label: 'Python', path: '~/.local' },
+      { label: 'Pi', path: '~/.pi' },
+    ],
+  },
+  {
+    id: 'music',
+    family: 'content',
+    name: '音乐',
+    note: '本地音乐库。',
+    readOnly: true,
+    items: [{ label: '音乐', path: '~/Music' }],
   },
   {
     id: 'system-resources',

@@ -1,14 +1,18 @@
-// The tools the model uses when the user asks for an analysis in the chat.
-// The panel works without them; they only add the second opinion.
+// The tools the model uses when the user asks for a disk analysis in the main
+// conversation. The pane reads their results; it never calls anything itself.
 
 import { formatBytes } from './clean.js'
 
 function summarize(snapshot, limit = 12) {
   if (snapshot === null) return '还没有扫描结果。先调用 disk_scan。'
   const used = snapshot.disk?.used ?? 0
-  const free = snapshot.disk?.free ?? 0
+  const available = snapshot.disk?.available ?? snapshot.disk?.free ?? 0
+  const reclaimable = snapshot.disk?.reclaimable ?? 0
   const lines = [
-    '磁盘：总 ' + formatBytes((snapshot.disk?.total ?? 0)) + '，已用 ' + formatBytes(used) + '，可用 ' + formatBytes(free) + '。',
+    '磁盘：总 ' + formatBytes((snapshot.disk?.total ?? 0))
+      + '，已用 ' + formatBytes(used)
+      + '，可用 ' + formatBytes(available)
+      + (reclaimable > 0 ? '，其中可回收 ' + formatBytes(reclaimable) : '') + '。',
     '扫描于 ' + String(snapshot.createdAt ?? '').slice(0, 16).replace('T', ' ') + '，耗时 ' + Math.round((snapshot.durationMs ?? 0) / 1000) + ' 秒。',
     '',
     '分类（按大小）：',
@@ -20,7 +24,10 @@ function summarize(snapshot, limit = 12) {
       lines.push('    ' + item.label + ' ' + formatBytes(item.bytes) + '  ' + item.path + '  [' + item.status + ']')
     }
   }
-  if (snapshot.unaccounted > 0) lines.push('- 尚未归类：' + formatBytes(snapshot.unaccounted))
+  if (snapshot.unaccounted > 0) {
+    lines.push('- 量不到：' + formatBytes(snapshot.unaccounted)
+      + ((snapshot.deniedCount ?? 0) > 0 ? '（系统拒绝了 ' + snapshot.deniedCount + ' 个目录）' : ''))
+  }
   const big = (snapshot.index?.bigFiles ?? []).slice(0, 8)
   if (big.length > 0) {
     lines.push('', '大文件（前 8）：')
@@ -68,7 +75,7 @@ export function createTools({ engine }) {
     description: 'Read the last disk snapshot without measuring anything: categories, sizes, the index of big files and the existing cleanup suggestions.',
     parameters: { type: 'object', additionalProperties: false, properties: {} },
     output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] },
-    execute: async () => summarize(await engine.snapshot()),
+    execute: async () => summarize(await engine.load()),
   }
 
   const propose = {

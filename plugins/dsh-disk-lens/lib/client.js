@@ -1,10 +1,9 @@
 /**
- * dsh-disk-lens browser half.
+ * dsh-disk-lens — the browser half.
  *
- * One page in the center column and one row in the sidebar list. The page does
- * the talking: a sand map of the last snapshot, the categories behind it, the
- * cleanup suggestions the rules and the model produced, the exact script a
- * clean will run, and the audit log of what already ran.
+ * One tab in the right sidebar. It draws what the tools last left behind, and
+ * it can do three things without the model: start a scan, run the suggestions
+ * already in the snapshot, and reveal a file the scan found.
  */
 window.__ModuleLoader__.load({
   id: 'dsh-disk-lens',
@@ -13,12 +12,21 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const { useState, useEffect, useMemo, useRef, useCallback } = React
 
-    const PANEL_ID = 'disk-lens'
+    const TAB_ID = 'dsh-disk-lens'
+    const KIND = 'disk-lens'
     const ROUTE = 'api/dsh-disk-lens'
-    const POLL_BUSY_MS = 900
-    const POLL_IDLE_MS = 5000
+    const STYLE_ID = 'dl-style'
+    const POLL_BUSY_MS = 1200
+    const POLL_READ_MS = 8000
+    const DELTA_FLOOR = 100 * 1024 * 1024
+    const DELTA_TTL_MS = 9000
+    const ARM_MS = 4000
+    const FILE_LIMIT = 6
 
-    const STATUS_TEXT = { ok: '', missing: '不存在', denied: '无权限', timeout: '测量超时', failed: '测量失败', cancel: '已取消' }
+    const STATUS_TEXT = { ok: '', missing: '不存在', denied: '无权限', timeout: '超时', failed: '失败', cancel: '已取消' }
+    const SAFETY_TEXT = { safe: '安全', review: '先看一眼', careful: '需谨慎' }
+    const METHOD_TEXT = { trash: '废纸篓', delete: '直接删除', command: '命令' }
+    const SCALE_TICKS = [25, 50, 75]
 
     const FAMILY_COLOR = {
       content: 'var(--dl-content)',
@@ -29,18 +37,29 @@ window.__ModuleLoader__.load({
 
     let styleJob = null
     function ensureStyle() {
-      if (document.getElementById('dl-style') !== null) return
+      if (document.getElementById(STYLE_ID) !== null) return
       if (styleJob !== null) return
       styleJob = fetch('/' + ROUTE + '/style')
         .then((response) => (response.ok ? response.text() : ''))
         .then((text) => {
-          if (text === '' || document.getElementById('dl-style') !== null) return
+          if (text === '' || document.getElementById(STYLE_ID) !== null) return
           const node = document.createElement('style')
-          node.id = 'dl-style'
+          node.id = STYLE_ID
           node.textContent = text
           document.head.appendChild(node)
         })
         .catch(() => { styleJob = null })
+    }
+
+    async function postJson(path, body) {
+      const response = await fetch('/' + ROUTE + path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body || {}),
+      })
+      const json = await response.json().catch(() => ({}))
+      if (!response.ok || json.ok === false) throw new Error(json.error || response.statusText)
+      return json
     }
 
     function rmBytes(bytes) {
@@ -57,739 +76,557 @@ window.__ModuleLoader__.load({
       return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
     }
 
+    /** ~/Library/Application Support rather than a 60-character absolute path. */
+    function shortPath(path) {
+      const text = String(path).replace(/^\/Users\/[^/]+/, '~')
+      const parts = text.split('/').filter(Boolean)
+      if (parts.length <= 3) return text
+      return '…/' + parts.slice(-2).join('/')
+    }
+
     function candidatesOf(snapshot) {
-      if (!snapshot) return []
+      if (snapshot === null) return []
       const out = []
       for (const category of snapshot.categories || []) {
-        for (const candidate of category.cleanup || []) out.push({ ...candidate, category: category.name, family: category.family })
+        for (const candidate of category.cleanup || []) {
+          if (candidate.ignored === true) continue
+          out.push({ ...candidate, categoryId: category.id, category: category.name, family: category.family })
+        }
       }
       return out
     }
 
-    class Api {
-      constructor() { this.base = ROUTE }
-      async get(path) {
-        const response = await fetch('/' + this.base + path, { headers: { accept: 'application/json' } })
-        const json = await response.json().catch(() => ({}))
-        if (!response.ok || json.ok === false) throw new Error(json.error || response.statusText)
-        return json
+    /** id -> byte difference since the previous snapshot, only where it matters. */
+    function diffSnapshots(previous, next) {
+      const out = {}
+      if (!previous || !next || previous.createdAt === next.createdAt) return out
+      const before = new Map((previous.categories || []).map((category) => [category.id, category.bytes]))
+      for (const category of next.categories || []) {
+        const old = before.get(category.id)
+        if (old === undefined) continue
+        const delta = category.bytes - old
+        if (Math.abs(delta) >= DELTA_FLOOR) out[category.id] = delta
       }
-      async post(path, body) {
-        const response = await fetch('/' + this.base + path, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(body || {}),
-        })
-        const json = await response.json().catch(() => ({}))
-        if (!response.ok || json.ok === false) throw new Error(json.error || response.statusText)
-        return json
-      }
-      state() { return this.get('/state') }
-      scan(rules) { return this.post('/scan', { rules }) }
-      cancel() { return this.post('/cancel', {}) }
-      plan(ids) { return this.post('/plan', { ids }) }
-      clean(ids) { return this.post('/clean', { ids }) }
-      settings(patch) { return this.post('/settings', patch) }
-      chat() { return this.get('/chat') }
-      chatSend(text) { return this.post('/chat/send', { text }) }
-      chatCancel() { return this.post('/chat/cancel', {}) }
-      chatClear() { return this.post('/chat/clear', {}) }
-      models() { return this.get('/models') }
-
+      return out
     }
 
-    /* ---------- capacity bar ---------- */
+    class Reader {
+      constructor() { this.base = ROUTE }
+      async state() {
+        const response = await fetch('/' + this.base + '/state', { headers: { accept: 'application/json' } })
+        const json = await response.json().catch(() => ({}))
+        if (!response.ok || json.ok === false) throw new Error(json.error || response.statusText)
+        return json
+      }
+    }
 
-    function CapacityBar({ snapshot, scanning, progress, active, onSelect }) {
-      const total = snapshot ? snapshot.disk.total : 0
-      const free = snapshot ? snapshot.disk.free : 0
-      const used = snapshot ? snapshot.disk.used : 0
-      const freePct = total > 0 ? (free / total) * 100 : 100
+    /** A figure that lifts into place when its value changes. */
+    function Num({ value }) {
+      const previous = useRef(value)
+      const [bump, setBump] = useState(0)
+      useEffect(() => {
+        if (previous.current !== value) {
+          previous.current = value
+          setBump((count) => count + 1)
+        }
+      }, [value])
+      return h('b', {
+        key: bump,
+        className: 'dl-num' + (bump > 0 ? ' is-bump' : ''),
+      }, rmBytes(value))
+    }
+
+    function CopyButton({ text }) {
+      const [done, setDone] = useState(false)
+      const timer = useRef(null)
+      useEffect(() => () => { if (timer.current !== null) clearTimeout(timer.current) }, [])
+      return h('button', {
+        type: 'button',
+        className: 'dl-copy' + (done ? ' is-done' : ''),
+        onClick: () => {
+          const mark = () => {
+            setDone(true)
+            if (timer.current !== null) clearTimeout(timer.current)
+            timer.current = setTimeout(() => setDone(false), 1200)
+          }
+          try {
+            const result = navigator.clipboard?.writeText(text)
+            if (result && typeof result.then === 'function') result.then(mark).catch(() => {})
+            else mark()
+          } catch { /* clipboard blocked */ }
+        },
+      }, done ? '已复制' : '复制')
+    }
+
+    /* ---------- gauge ---------- */
+
+    function Gauge({ snapshot, changed, hot, onHot }) {
+      const disk = (snapshot && snapshot.disk) || {}
+      const total = Number(disk.total) || 0
+      const available = Number(disk.available ?? disk.free) || 0
+      const used = Number(disk.used) || Math.max(0, total - available)
+      const reclaimable = Math.max(0, Number(disk.reclaimable) || 0)
+      const hasData = snapshot !== null && total > 0
+
       const categories = snapshot
         ? snapshot.categories.slice().filter((category) => category.bytes > 0).sort((a, b) => b.bytes - a.bytes)
         : []
       const accounted = categories.reduce((sum, category) => sum + category.bytes, 0)
-      const rest = snapshot ? Math.max(0, used - accounted) : 0
+      const rest = Math.max(0, used - accounted)
+
       const segments = categories.map((category) => ({
+        key: 'seg-' + category.id,
         id: category.id,
         name: category.name,
-        family: category.family,
         bytes: category.bytes,
+        color: FAMILY_COLOR[category.family] || FAMILY_COLOR.system,
+        faded: category.id === 'unaccounted',
         percent: total > 0 ? (category.bytes / total) * 100 : 0,
       }))
-      if (rest > 0) segments.push({ id: '__rest', name: '其他已用', family: 'system', bytes: rest, percent: total > 0 ? (rest / total) * 100 : 0 })
-      const hasData = snapshot !== null && total > 0
+      if (rest > 0) {
+        segments.push({
+          key: 'seg-rest',
+          id: 'rest',
+          name: '其他',
+          bytes: rest,
+          color: FAMILY_COLOR.system,
+          faded: true,
+          percent: total > 0 ? (rest / total) * 100 : 0,
+        })
+      }
+      const freePercent = total > 0 ? (available / total) * 100 : 100
+      const shown = segments.slice(0, 3)
 
-      return h('section', { className: 'dl-map' },
-        h('div', { className: 'dl-map-head' },
-          h('div', { className: 'dl-map-chips' },
-            h('span', { className: 'dl-chip' }, snapshot ? '扫描于 ' + shortDate(snapshot.createdAt) : '还没有扫描'),
-            snapshot ? h('span', { className: 'dl-chip' }, '已用 ' + rmBytes(used) + ' / ' + rmBytes(total)) : null
-          ),
-          scanning && progress && progress.total > 0
-            ? h('span', { className: 'dl-chip' }, '正在测量 ' + progress.done + ' / ' + progress.total)
-            : null
+      const figures = h('div', { className: 'dl-figures' },
+        h('span', { className: 'dl-figure is-lead' },
+          h('i', null, '已用'),
+          hasData ? h(Num, { value: used }) : h('b', null, '—')
         ),
         hasData
-          ? h('div', { className: 'dl-bar' + (scanning ? ' is-scanning' : '') },
-              segments.map((segment) => h('button', {
-                key: segment.id,
-                type: 'button',
-                className: 'dl-seg' + (active === segment.id ? ' is-active' : ''),
-                style: { flexGrow: Math.max(segment.percent, 0.15), background: FAMILY_COLOR[segment.family] || 'var(--dl-system)' },
-                title: segment.name + ' · ' + rmBytes(segment.bytes) + ' · ' + segment.percent.toFixed(1) + '%',
-                onClick: segment.id === '__rest' ? undefined : () => onSelect(active === segment.id ? '' : segment.id),
-              })),
-              h('div', { className: 'dl-seg is-free', style: { flexGrow: Math.max(freePct, 0.15) }, title: '可用 ' + rmBytes(free) + ' · ' + freePct.toFixed(1) + '%' })
-            )
-          : h('div', { className: 'dl-bar-empty' }, scanning ? '正在测量…' : '点「开始扫描」，用规则表量一遍磁盘。'),
-        hasData
-          ? h('div', { className: 'dl-legend' },
-              segments.map((segment) => h('button', {
-                key: 'legend-' + segment.id,
-                type: 'button',
-                className: 'dl-legend-row' + (active === segment.id ? ' is-active' : ''),
-                onClick: segment.id === '__rest' ? undefined : () => onSelect(active === segment.id ? '' : segment.id),
-              },
-                h('i', { className: 'dl-legend-dot', style: { background: FAMILY_COLOR[segment.family] || 'var(--dl-system)' } }),
-                h('span', { className: 'dl-legend-name' }, segment.name),
-                h('span', { className: 'dl-legend-size' }, rmBytes(segment.bytes)),
-                h('span', { className: 'dl-legend-pct' }, segment.percent >= 0.5 ? segment.percent.toFixed(0) + '%' : '<1%')
-              )),
-              h('div', { className: 'dl-legend-row is-free' },
-                h('i', { className: 'dl-legend-dot' }),
-                h('span', { className: 'dl-legend-name' }, '可用'),
-                h('span', { className: 'dl-legend-size' }, rmBytes(free)),
-                h('span', { className: 'dl-legend-pct' }, freePct.toFixed(0) + '%')
-              )
-            )
+          ? h('span', { className: 'dl-figure-sub' },
+              '可用 ' + rmBytes(available)
+              + (reclaimable > 0 ? ' · 可回收 ' + rmBytes(reclaimable) : '')
+              + ' · 总计 ' + rmBytes(total))
           : null
       )
+
+      if (!hasData) {
+        return h('div', { className: 'dl-board-block dl-gauge' }, figures,
+          h('div', { className: 'dl-empty' }, snapshot === null ? '还没有扫描结果' : '这次没有量到可用数据'))
+      }
+
+      const bar = h('div', { className: 'dl-bar' },
+        segments.map((segment) => h('div', {
+          key: segment.key,
+          className: 'dl-seg'
+            + (segment.faded ? ' is-faded' : '')
+            + (hot === segment.id ? ' is-hot' : '')
+            + (changed && changed[segment.id] !== undefined ? ' is-changed' : ''),
+          style: { flexGrow: Math.max(segment.percent, 0.15), background: segment.color },
+          title: segment.name + ' · ' + rmBytes(segment.bytes) + ' · ' + segment.percent.toFixed(1) + '%',
+          onMouseEnter: () => onHot && onHot(segment.id),
+          onMouseLeave: () => onHot && onHot(null),
+        })),
+        h('div', {
+          key: 'seg-free',
+          className: 'dl-seg is-free',
+          style: { flexGrow: Math.max(freePercent, 0.15) },
+          title: '可用 ' + rmBytes(available) + ' · ' + freePercent.toFixed(1) + '%',
+        }),
+        h('div', { key: 'scale', className: 'dl-bar-scale' },
+          SCALE_TICKS.map((tick) => h('span', { key: tick, style: { left: tick + '%' } })))
+      )
+
+      const axis = h('div', { className: 'dl-scale-axis' })
+
+      const legend = h('div', { className: 'dl-legend' },
+        shown.map((segment) => h('span', {
+          key: 'lg-' + segment.key,
+          className: 'dl-legend-item' + (hot === segment.id ? ' is-hot' : ''),
+          onMouseEnter: () => onHot && onHot(segment.id),
+          onMouseLeave: () => onHot && onHot(null),
+        },
+          h('i', { className: 'dl-legend-dot' + (segment.faded ? ' is-faded' : ''), style: segment.faded ? undefined : { background: segment.color } }),
+          h('span', { className: 'dl-legend-name' }, segment.name),
+          h('b', null, rmBytes(segment.bytes))
+        )),
+        segments.length > shown.length
+          ? h('span', { key: 'lg-more', className: 'dl-legend-item' },
+              h('span', { className: 'dl-legend-name' }, '另 ' + (segments.length - shown.length) + ' 类'))
+          : null,
+        h('span', { key: 'lg-free', className: 'dl-legend-item' },
+          h('i', { className: 'dl-legend-dot is-free' }),
+          h('span', { className: 'dl-legend-name' }, '可用'),
+          h('b', null, rmBytes(available))
+        )
+      )
+
+      return h('div', { className: 'dl-board-block dl-gauge' }, figures, bar, axis, legend)
     }
 
     /* ---------- categories ---------- */
 
-    function CategoryList({ snapshot, active, onSelect }) {
+    function CategoryList({ snapshot, changed, onHot }) {
       const categories = snapshot ? snapshot.categories.slice().sort((a, b) => b.bytes - a.bytes) : []
-      return h('section', { className: 'dl-panel' },
-        h('div', { className: 'dl-panel-head' },
-          h('h3', null, '分类'),
-          h('span', null, categories.length + ' 项')
-        ),
-        categories.length === 0
-          ? h('div', { className: 'dl-empty' }, '扫描后这里按占用大小列出每一类。')
-          : categories.map((category) => h('div', {
-              key: category.id,
-              className: 'dl-cat' + (active === category.id ? ' is-active' : ''),
-              'data-family': category.family,
-              onClick: () => onSelect(active === category.id ? '' : category.id),
-            },
-              h('span', { className: 'dl-cat-bar' }),
-              h('div', null,
-                h('div', { className: 'dl-cat-name' }, category.name,
-                  category.readOnly ? h('span', { className: 'dl-tag' }, '只读') : null,
-                  (category.cleanup || []).some((item) => item.origin === 'model') ? h('span', { className: 'dl-tag is-model' }, '模型') : null
-                ),
-                category.note ? h('div', { className: 'dl-cat-note' }, category.note) : null,
-                active === category.id && category.items.length > 0
-                  ? h('div', { className: 'dl-cat-items' }, category.items.slice(0, 10).map((item, index) =>
-                      h('div', { key: category.id + '-item-' + index, className: 'dl-cat-item' + (item.status !== 'ok' ? ' is-denied' : '') },
-                        h('span', null, item.label + (STATUS_TEXT[item.status] ? '（' + STATUS_TEXT[item.status] + '）' : '')),
-                        h('b', null, rmBytes(item.bytes))
-                      )))
-                  : null
-              ),
-              h('span', { className: 'dl-cat-size' }, rmBytes(category.bytes))
-            ))
+      const deniedCount = snapshot ? Number(snapshot.deniedCount) || 0 : 0
+
+      const head = h('div', { className: 'dl-block-head' },
+        h('span', null, '分类'),
+        h('span', null, categories.length + ' 项')
       )
+
+      if (categories.length === 0) {
+        return h('div', { className: 'dl-board-block' }, head,
+          h('div', { className: 'dl-empty' }, '扫描后这里按占用大小列出每一类。'))
+      }
+
+      const rows = categories.map((category) => {
+        const items = category.items || []
+        const faded = category.id === 'unaccounted'
+        const delta = changed ? changed[category.id] : undefined
+        const tags = []
+        if (category.readOnly) tags.push(h('span', { key: 'readonly', className: 'dl-tag' }, '只读'))
+        if (faded && deniedCount > 0) tags.push(h('span', { key: 'denied', className: 'dl-tag' }, deniedCount + ' 个目录被拒'))
+        if ((category.cleanup || []).some((item) => item.origin === 'model')) {
+          tags.push(h('span', { key: 'model', className: 'dl-tag is-model' }, '模型'))
+        }
+        return h('div', {
+          key: category.id,
+          className: 'dl-row'
+            + (faded ? ' is-faded' : '')
+            + (delta !== undefined ? ' is-changed' : ''),
+          'data-family': category.family,
+          onMouseEnter: () => onHot && onHot(category.id),
+          onMouseLeave: () => onHot && onHot(null),
+        },
+          h('div', { className: 'dl-row-main' },
+            h('span', { className: 'dl-row-name' }, category.name, tags),
+            h('span', { className: 'dl-row-size' },
+              rmBytes(category.bytes),
+              delta !== undefined
+                ? h('i', { className: 'dl-delta' + (delta < 0 ? ' is-down' : '') },
+                    (delta > 0 ? '+' : '−') + rmBytes(Math.abs(delta)))
+                : null)
+          ),
+          items.length > 0
+            ? h('div', { className: 'dl-subs' }, items.slice(0, 2).map((item, index) =>
+                h('div', {
+                  key: category.id + '-item-' + index,
+                  className: 'dl-sub' + (item.status !== 'ok' ? ' is-denied' : ''),
+                },
+                  h('span', null, item.label + (STATUS_TEXT[item.status] ? '（' + STATUS_TEXT[item.status] + '）' : '')),
+                  h('b', null, rmBytes(item.bytes))
+                )))
+            : null,
+          items.length > 2 ? h('div', { className: 'dl-more' }, '另有 ' + (items.length - 2) + ' 项') : null
+        )
+      })
+
+      return h('div', { className: 'dl-board-block' }, head, rows)
     }
 
     /* ---------- suggestions ---------- */
 
-    function SuggestionList({ snapshot, selected, onToggle, allowDelete }) {
+    function SuggestionList({ snapshot, onHot, onClean, onCleanAll, armed, busy }) {
       const candidates = candidatesOf(snapshot)
-      return h('section', { className: 'dl-panel dl-suggest' },
-        h('div', { className: 'dl-panel-head' },
-          h('h3', null, '清理建议'),
-          h('span', null, candidates.length + ' 条可勾选')
-        ),
-        h('div', { className: 'dl-suggest-body' },
-        candidates.length === 0
-          ? h('div', { className: 'dl-empty' }, '还没有建议。规则扫描会给出缓存类建议，模型分析会补充它找到的。')
-          : candidates.map((candidate) => {
-              const on = selected.has(candidate.id)
-              return h('div', { key: candidate.id, className: 'dl-sug' },
-                h('button', {
-                  type: 'button',
-                  className: 'dl-check',
-                  'data-on': on ? 'true' : 'false',
-                  'aria-pressed': on,
-                  'aria-label': (on ? '取消勾选 ' : '勾选 ') + candidate.label,
-                  disabled: candidate.method === 'delete' && !allowDelete,
-                  title: candidate.method === 'delete' && !allowDelete ? '先在设置里打开「允许直接删除」' : undefined,
-                  onClick: () => onToggle(candidate.id),
-                }, on ? '✓' : ''),
-                h('div', null,
-                  h('div', { className: 'dl-sug-label' }, candidate.label,
-                    h('span', { className: 'dl-tag is-' + candidate.safety }, candidate.safety === 'safe' ? '安全' : candidate.safety === 'review' ? '先看一眼' : '需谨慎'),
-                    h('span', { className: 'dl-tag' }, candidate.method === 'trash' ? '废纸篓' : candidate.method === 'delete' ? '直接删除' : '命令'),
-                    candidate.origin === 'model' ? h('span', { className: 'dl-tag is-model' }, '模型') : null,
-                    candidate.method === 'delete' && !allowDelete ? h('span', { className: 'dl-tag is-careful' }, '需开启删除') : null
-                  ),
-                  candidate.why ? h('div', { className: 'dl-sug-why' }, candidate.why) : null,
-                  candidate.method === 'command'
-                    ? h('div', { className: 'dl-sug-cmd' }, candidate.command)
-                    : h('div', { className: 'dl-sug-cmd' }, (candidate.paths || []).join('\n'))
-                ),
-                h('span', { className: 'dl-sug-size' }, rmBytes(candidate.bytes))
-              )
-            })
-        )
+      const totalBytes = candidates.reduce((sum, candidate) => sum + (candidate.bytes || 0), 0)
+      const safe = candidates.filter((candidate) => candidate.safety === 'safe')
+      const safeBytes = safe.reduce((sum, candidate) => sum + (candidate.bytes || 0), 0)
+
+      const head = h('div', { className: 'dl-block-head' },
+        h('span', null, '清理建议'),
+        safe.length > 0
+          ? h('button', {
+              type: 'button',
+              className: 'dl-act is-quiet',
+              disabled: busy !== '' || armed !== '',
+              onClick: () => onCleanAll(safe),
+            }, '清理安全项 ' + safe.length + ' · ' + rmBytes(safeBytes))
+          : h('span', null, candidates.length === 0 ? '—' : candidates.length + ' 条 · ' + rmBytes(totalBytes))
       )
-    }
 
-    /* ---------- audit & settings ---------- */
-
-    const AUDIT_KIND = { scan: '扫描', propose: '写入建议', clean: '清理' }
-
-    function auditLine(row) {
-      if (row.kind === 'scan') return '规则 ' + (row.rules || 0) + ' 条 · ' + Math.round((row.durationMs || 0) / 1000) + ' 秒'
-      if (row.kind === 'clean') return '释放约 ' + rmBytes(row.freed || 0) + ' · ' + (row.ids || []).length + ' 条'
-      if (row.kind === 'propose') return '写入 ' + (row.categories || 0) + ' 个分类' + (row.refused ? ' · 拒绝 ' + row.refused + ' 条' : '')
-      return JSON.stringify(row).slice(0, 80)
-    }
-
-    function AuditPanel({ audit }) {
-      return h('section', { className: 'dl-panel' },
-        h('div', { className: 'dl-panel-head' }, h('h3', null, '审计'), h('span', null, audit.length + ' 条记录')),
-        h('div', { className: 'dl-audit' },
-          audit.length === 0
-            ? h('div', { className: 'dl-empty' }, '还没有记录。每次扫描、写入建议、清理都会记在这里。')
-            : audit.map((row) => h('div', { key: 'audit-' + (row.at || '') + '-' + (row.kind || ''), className: 'dl-audit-row' },
-                h('span', null, shortDate(row.at)),
-                h('span', null, AUDIT_KIND[row.kind] || row.kind || ''),
-                h('span', null, auditLine(row))
-              ))
-        )
-      )
-    }
-
-    function SettingsPanel({ settings, rules, models, onPatch, busy }) {
-      const disabled = new Set(settings.disabledRules || [])
-      const enabledCount = rules.filter((rule) => !disabled.has(rule.id)).length
-      return h('section', { className: 'dl-panel' },
-        h('div', { className: 'dl-panel-head' },
-          h('h3', null, '设置'),
-          h('span', null, '规则 ' + enabledCount + ' / ' + rules.length)
-        ),
-        h('div', { className: 'dl-settings' },
-          h(ModelPicker, { models, chatModel: settings.chatModel, onPatch, busy }),
-          h('div', { className: 'dl-switch' },
-            h('div', null, '允许直接删除', h('small', null, '关闭时 delete 类建议会被拒绝，其余清理都进废纸篓。')),
-            h('button', {
-              'data-on': settings.allowDelete ? 'true' : 'false',
-              role: 'switch',
-              'aria-checked': settings.allowDelete ? 'true' : 'false',
-              'aria-label': '允许直接删除',
-              disabled: busy,
-              onClick: () => onPatch({ allowDelete: !settings.allowDelete }),
-            }, h('i'))
-          ),
-          h('div', { className: 'dl-switch' },
-            h('div', null, '并行测量', h('small', null, '同时跑几个 du；机械硬盘用 2，SSD 可以到 6。')),
-            h('div', { className: 'dl-tabs' },
-              [1, 2, 4, 6].map((value) => h('button', {
-                key: 'conc-' + value,
-                className: 'dl-tab',
-                'data-on': (settings.concurrency || 4) === value,
-                disabled: busy,
-                onClick: () => onPatch({ concurrency: value }),
-              }, String(value)))
-            )
-          ),
-          h('div', { className: 'dl-switch is-column' },
-            h('div', null, '规则', h('small', null, '关掉的规则不参与扫描，也不会生成建议。')),
-            h('div', { className: 'dl-chips' },
-              rules.map((rule) => {
-                const on = !disabled.has(rule.id)
-                return h('button', {
-                  key: 'rule-' + rule.id,
-                  className: 'dl-chip-btn',
-                  'data-on': on,
-                  disabled: busy,
-                  onClick: () => {
-                    const next = new Set(disabled)
-                    if (next.has(rule.id)) next.delete(rule.id)
-                    else next.add(rule.id)
-                    onPatch({ disabledRules: [...next] })
-                  },
-                }, rule.name)
-              })
-            )
-          )
-        )
-      )
-    }
-
-    /* ---------- dialogs ---------- */
-
-    function ConfirmDialog({ pending, cleaning, allowDelete, onCancel, onConfirm }) {
-      const cancelRef = useRef(null)
-      useEffect(() => {
-        cancelRef.current?.focus?.()
-        const onKey = (event) => { if (event.key === 'Escape' && !cleaning) onCancel() }
-        window.addEventListener('keydown', onKey)
-        return () => window.removeEventListener('keydown', onKey)
-      }, [cleaning, onCancel])
-      const blockedDelete = pending.hasDelete && !allowDelete
-      return h('div', { className: 'dl-backdrop', onClick: () => { if (!cleaning) onCancel() } },
-        h('div', { className: 'dl-modal', role: 'dialog', 'aria-modal': 'true', onClick: (event) => event.stopPropagation() },
-          h('div', { className: 'dl-modal-head' },
-            h('h3', null, '确认执行 ' + pending.count + ' 条清理'),
-            h('p', null, '将释放约 ' + rmBytes(pending.bytes) + '。下面是会跑的全部命令；非命令类默认进废纸篓，可以恢复。')
-          ),
-          blockedDelete
-            ? h('div', { className: 'dl-warn' }, '其中包含直接删除的条目，设置里没有打开删除开关，这一批不会执行。')
-            : null,
-          h('pre', { className: 'dl-script' }, pending.script),
-          h('div', { className: 'dl-modal-foot' },
-            h('span', null, '执行结果会写进下面的审计。'),
-            h('div', { className: 'dl-actions' },
-              h('button', { ref: cancelRef, className: 'dl-btn is-quiet', disabled: cleaning, onClick: onCancel }, '取消'),
-              h('button', { className: 'dl-btn is-primary', disabled: cleaning, onClick: onConfirm }, cleaning ? '正在清理…' : '确认执行')
-            )
-          )
-        )
-      )
-    }
-
-    function Toast({ result, onClose }) {
-      useEffect(() => {
-        const timer = setTimeout(onClose, 6000)
-        return () => clearTimeout(timer)
-      }, [result, onClose])
-      const done = result.results.filter((row) => row.state === 'done').length
-      const failed = result.results.filter((row) => row.state === 'failed').length
-      return h('div', { className: 'dl-toast', role: 'status' },
-        h('b', null, '清理完成'),
-        h('span', null, '释放约 ' + rmBytes(result.freed) + ' · 成功 ' + done + (failed > 0 ? ' · 失败 ' + failed : '')),
-        h('button', { className: 'dl-toast-close', 'aria-label': '关闭', onClick: onClose }, '×')
-      )
-    }
-
-    /* ---------- page ---------- */
-
-    function ModelPicker({ models, chatModel, onPatch, busy }) {
-      const providers = (models && models.providers) || []
-      if (providers.length === 0) {
-        return h('div', { className: 'dl-switch' }, h('div', null, '对话模型', h('small', null, '没有可用的模型提供商。')))
+      if (candidates.length === 0) {
+        return h('div', { className: 'dl-board-block' }, head,
+          h('div', { className: 'dl-empty' }, '规则会给出缓存类建议；让模型分析一次，它还会补上自己找到的。'))
       }
-      const current = chatModel || (models && models.selection) || null
-      const provider = providers.find((item) => item.id === (current && current.provider)) || providers[0]
-      const model = provider.models.find((item) => item.id === (current && current.model)) || provider.models[0]
-      const efforts = (model && model.efforts) || []
-      const effort = (current && current.reasoningEffort) || 'low'
-      const commit = (nextProvider, nextModel, nextEffort) => {
-        onPatch({ chatModel: { provider: nextProvider.id, model: nextModel.id, reasoningEffort: nextEffort } })
-      }
-      return h('div', { className: 'dl-switch is-column' },
-        h('div', null, '对话模型', h('small', null, '面板里的对话用它，与主会话互不影响。')),
-        h('div', { className: 'dl-model-row' },
-          h('select', {
-            value: provider.id,
-            disabled: busy,
-            onChange: (event) => {
-              const next = providers.find((item) => item.id === event.target.value) || providers[0]
-              const first = next.models[0]
-              commit(next, first, (first.efforts[0] && first.efforts[0].id) || 'low')
-            },
-          }, providers.map((item) => h('option', { key: item.id, value: item.id }, item.name))),
-          h('select', {
-            value: model ? model.id : '',
-            disabled: busy,
-            onChange: (event) => {
-              const next = provider.models.find((item) => item.id === event.target.value) || model
-              commit(provider, next, (next.efforts[0] && next.efforts[0].id) || 'low')
-            },
-          }, provider.models.map((item) => h('option', { key: item.id, value: item.id }, item.name)))
-        ),
-        efforts.length > 0
-          ? h('div', { className: 'dl-tabs' }, efforts.map((item) => h('button', {
-              key: item.id,
-              className: 'dl-tab',
-              'data-on': effort === item.id,
-              disabled: busy,
-              onClick: () => commit(provider, model, item.id),
-            }, item.name)))
-          : null
-      )
-    }
 
-    function Drawer({ title, onClose, children }) {
-      const closeRef = useRef(null)
-      useEffect(() => {
-        closeRef.current?.focus?.()
-        const onKey = (event) => { if (event.key === 'Escape') onClose() }
-        window.addEventListener('keydown', onKey)
-        return () => window.removeEventListener('keydown', onKey)
-      }, [onClose])
-      return h('div', { className: 'dl-drawer-layer', onClick: onClose },
-        h('aside', { className: 'dl-drawer', role: 'dialog', 'aria-modal': 'true', onClick: (event) => event.stopPropagation() },
-          h('div', { className: 'dl-drawer-head' },
-            h('h3', null, title),
-            h('button', { ref: closeRef, className: 'dl-drawer-close', 'aria-label': '关闭', onClick: onClose }, '×')
-          ),
-          h('div', { className: 'dl-drawer-body' }, children)
-        )
-      )
-    }
-
-    function ChatPanel({ chat, input, onInput, onSend, sending, embedded }) {
-      const scroller = useRef(null)
-      const stick = useRef(true)
-      const messages = chat ? chat.messages : []
-      // The mirrored session is often mid-turn; that must not lock the composer.
-      const running = sending
-      useEffect(() => {
-        const node = scroller.current
-        if (node !== null && stick.current) node.scrollTop = node.scrollHeight
-      }, [chat, sending])
-      return h('section', { className: 'dl-panel dl-chat' + (embedded ? ' is-embedded' : '') },
-        h('div', { className: 'dl-panel-head' },
-          h('h3', null, '对话'),
-          h('span', null, sending ? '发送中' : (chat && chat.running ? '会话运行中' : '当前会话'))
-        ),
-        h('div', {
-          className: 'dl-chat-log',
-          ref: scroller,
-          onScroll: (event) => {
-            const node = event.currentTarget
-            stick.current = node.scrollHeight - node.scrollTop - node.clientHeight < 40
-          },
+      const rows = candidates.map((candidate) => {
+        const command = candidate.command || (candidate.paths || []).join('\n')
+        const isBusy = busy === candidate.id
+        const isArmed = armed === candidate.id
+        return h('div', {
+          key: candidate.id,
+          className: 'dl-row',
+          'data-family': candidate.family,
+          onMouseEnter: () => onHot && onHot(candidate.categoryId),
+          onMouseLeave: () => onHot && onHot(null),
         },
-          messages.length === 0
-            ? h('div', { className: 'dl-empty' }, '在这里和当前会话对话。问磁盘上的事，模型会调用扫描与建议工具，结果直接写在面板里。')
-            : messages.map((message) => h('div', { key: message.id, className: 'dl-msg is-' + message.role },
-                message.role === 'user'
-                  ? h('div', { className: 'dl-bubble' }, message.text)
-                  : h('div', { className: 'dl-bubble' },
-                      (message.blocks || []).map((block, index) => block.type === 'text'
-                        ? h('p', { key: 'b' + index, className: 'dl-msg-text' }, block.text)
-                        : h('div', { key: 'b' + index, className: 'dl-tool' },
-                            h('span', { className: 'dl-tool-name' }, block.name),
-                            h('span', { className: 'dl-tool-detail' }, block.detail || '')
-                          ))
-                    )
-              ))
-        ),
-        h('div', { className: 'dl-chat-input' },
-          h('textarea', {
-            value: input,
-            rows: 2,
-            placeholder: '问磁盘上的事，或让它分析…',
-            onChange: (event) => onInput(event.target.value),
-            onKeyDown: (event) => {
-              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                event.preventDefault()
-                onSend()
-              }
-            },
-          }),
-          h('div', { className: 'dl-chat-actions' },
-            h('button', { className: 'dl-btn is-primary', disabled: input.trim() === '' || sending, onClick: onSend }, sending ? '发送中…' : '发送')
-          )
+          h('div', { className: 'dl-row-main' },
+            h('span', { className: 'dl-row-name' }, candidate.label),
+            h('span', { className: 'dl-row-size' }, rmBytes(candidate.bytes)),
+            h('button', {
+              type: 'button',
+              className: 'dl-act'
+                + (isArmed ? ' is-armed' : '')
+                + (candidate.safety === 'safe' ? ' is-safe' : ''),
+              disabled: busy !== '' && !isBusy,
+              onClick: () => onClean(candidate),
+            }, isBusy ? '清理中' : isArmed ? '确认？' : candidate.safety === 'safe' ? '清理' : '清理')
+          ),
+          h('div', { className: 'dl-tags' },
+            h('span', { key: 'safety', className: 'dl-tag is-' + candidate.safety }, SAFETY_TEXT[candidate.safety] || '需谨慎'),
+            h('span', { key: 'method', className: 'dl-tag' }, METHOD_TEXT[candidate.method] || '命令'),
+            candidate.origin === 'model' ? h('span', { key: 'origin', className: 'dl-tag is-model' }, '模型') : null
+          ),
+          candidate.why ? h('p', { className: 'dl-sug-why' }, candidate.why) : null,
+          command
+            ? h('div', { className: 'dl-cmd-wrap' },
+                h(CopyButton, { text: command }),
+                h('pre', { className: 'dl-cmd' }, command))
+            : null
         )
+      })
+
+      return h('div', { className: 'dl-board-block' }, head, rows)
+    }
+
+    /* ---------- biggest files ---------- */
+
+    function FileList({ snapshot, onReveal, busy }) {
+      const files = snapshot && snapshot.index && Array.isArray(snapshot.index.bigFiles)
+        ? snapshot.index.bigFiles.slice(0, FILE_LIMIT)
+        : []
+      if (files.length === 0) return null
+      return h('div', { className: 'dl-board-block' },
+        h('div', { className: 'dl-block-head' },
+          h('span', null, '最大的文件'),
+          h('span', null, files.length + ' 个')),
+        files.map((file) => h('button', {
+          key: file.path,
+          type: 'button',
+          className: 'dl-file',
+          title: file.path + '（点击在访达中显示）',
+          disabled: busy !== '',
+          onClick: () => onReveal(file.path),
+        },
+          h('b', null, rmBytes(file.bytes)),
+          h('span', null, shortPath(file.path))
+        ))
       )
     }
 
-    function DiskLensPage({ api }) {
-      const client = useMemo(() => api || new Api(), [api])
+    /* ---------- the pane ---------- */
+
+    function DiskLensPane({ api }) {
+      const client = useMemo(() => api || new Reader(), [api])
       const [state, setState] = useState(null)
-      const [chat, setChat] = useState(null)
-      const [chatInput, setChatInput] = useState('')
-      const [sending, setSending] = useState(false)
-      const [active, setActive] = useState('')
-      const [selected, setSelected] = useState(() => new Set())
-      const [pending, setPending] = useState(null)
-      const [result, setResult] = useState(null)
-      const [busy, setBusy] = useState('idle')
       const [error, setError] = useState('')
-      const [drawer, setDrawer] = useState('')
-      const [models, setModels] = useState(null)
+      const [changed, setChanged] = useState({})
+      const [hot, setHot] = useState(null)
+      const [armed, setArmed] = useState('')
+      const [busy, setBusy] = useState('')
       const mounted = useRef(true)
-      const stateSeq = useRef(0)
-      const chatSeq = useRef(0)
-      const closeResult = useCallback(() => setResult(null), [])
+      const seq = useRef(0)
+      const lastSnapshot = useRef(null)
+      const changedTimer = useRef(null)
+      const armTimer = useRef(null)
 
       useEffect(() => {
         mounted.current = true
         ensureStyle()
-        return () => { mounted.current = false }
+        return () => {
+          mounted.current = false
+          if (changedTimer.current !== null) clearTimeout(changedTimer.current)
+          if (armTimer.current !== null) clearTimeout(armTimer.current)
+        }
       }, [])
 
       const refresh = useCallback(async () => {
-        const token = ++stateSeq.current
+        const token = ++seq.current
         try {
           const next = await client.state()
-          if (!mounted.current || token !== stateSeq.current) return
+          if (!mounted.current || token !== seq.current) return
           setState(next)
+          const snapshot = next.snapshot
+          if (snapshot) {
+            const diff = diffSnapshots(lastSnapshot.current, snapshot)
+            lastSnapshot.current = snapshot
+            if (Object.keys(diff).length > 0) {
+              setChanged(diff)
+              if (changedTimer.current !== null) clearTimeout(changedTimer.current)
+              changedTimer.current = setTimeout(() => setChanged({}), DELTA_TTL_MS)
+            }
+          }
           if (next.error && !next.scanning) setError(String(next.error).slice(0, 200))
+          else setError('')
         } catch (problem) {
-          if (mounted.current && token === stateSeq.current) setError(problem instanceof Error ? problem.message : String(problem))
+          if (mounted.current && token === seq.current) setError(problem instanceof Error ? problem.message : String(problem))
         }
       }, [client])
 
-      useEffect(() => {
-        void refresh()
-        const busyPoll = state !== null && state.scanning
-        const timer = setInterval(() => { if (!document.hidden) void refresh() }, busyPoll ? 900 : 3000)
-        return () => clearInterval(timer)
-      }, [refresh, state !== null && state.scanning])
-
-      const pollChat = useCallback(async () => {
-        const token = ++chatSeq.current
+      const act = useCallback(async (path, body, key) => {
+        setBusy(key)
+        setError('')
         try {
-          const next = await client.chat()
-          if (!mounted.current || token !== chatSeq.current) return
-          setChat(next)
-        } catch { /* keep the last view */ }
-      }, [client])
-
-      useEffect(() => {
-        void pollChat()
-        const running = chat !== null && (chat.running || sending)
-        const timer = setInterval(() => { if (!document.hidden) void pollChat() }, running ? 900 : 2600)
-        return () => clearInterval(timer)
-      }, [pollChat, chat !== null && chat.running, sending])
-
-      useEffect(() => {
-        if (models !== null) return
-        void client.models().then((next) => { if (mounted.current) setModels(next) }).catch(() => {})
-      }, [client, models])
-
-      useEffect(() => {
-        const onVisibility = () => {
-          if (document.hidden) return
-          void refresh()
-          void pollChat()
-        }
-        document.addEventListener('visibilitychange', onVisibility)
-        return () => document.removeEventListener('visibilitychange', onVisibility)
-      }, [refresh, pollChat])
-
-      const sendChat = async () => {
-        const text = chatInput.trim()
-        if (text === '' || sending) return
-        setChatInput('')
-        setSending(true)
-        try {
-          await client.chatSend(text)
-          await pollChat()
+          await postJson(path, body)
+          await refresh()
         } catch (problem) {
           if (mounted.current) setError(problem instanceof Error ? problem.message : String(problem))
         } finally {
-          if (mounted.current) setSending(false)
+          if (mounted.current) setBusy('')
         }
-      }
+      }, [refresh])
 
-      const snapshot = state ? state.snapshot : null
-      const scanning = state ? state.scanning : false
-      const settings = state ? state.settings : { allowDelete: false, disabledRules: [], concurrency: 4 }
-      const rules = state ? state.rules : []
-      const audit = state ? state.audit : []
-      const progress = state ? state.progress : null
-      const candidates = candidatesOf(snapshot)
-      const candidateKey = candidates.map((candidate) => candidate.id).join('|')
+      const disarm = useCallback(() => {
+        if (armTimer.current !== null) clearTimeout(armTimer.current)
+        setArmed('')
+      }, [])
+
+      const clean = useCallback((candidate) => {
+        if (candidate.safety !== 'safe' && armed !== candidate.id) {
+          setArmed(candidate.id)
+          if (armTimer.current !== null) clearTimeout(armTimer.current)
+          armTimer.current = setTimeout(() => { if (mounted.current) setArmed('') }, ARM_MS)
+          return
+        }
+        disarm()
+        void act('/clean', { ids: [candidate.id] }, candidate.id)
+      }, [armed, act, disarm])
+
+      const cleanAll = useCallback((list) => {
+        disarm()
+        void act('/clean', { ids: list.map((item) => item.id) }, 'batch')
+      }, [act, disarm])
+
+      const reveal = useCallback((path) => {
+        void act('/reveal', { path }, 'reveal')
+      }, [act])
+
+      const scanning = state !== null && state.scanning === true
 
       useEffect(() => {
-        setSelected((previous) => {
-          const alive = new Set(candidateKey === '' ? [] : candidateKey.split('|'))
-          const next = new Set()
-          for (const id of previous) if (alive.has(id)) next.add(id)
-          return next.size === previous.size ? previous : next
-        })
-      }, [candidateKey])
+        if (typeof EventSource !== 'function') return undefined
+        const source = new EventSource('/' + ROUTE + '/events')
+        source.onmessage = () => { void refresh() }
+        return () => { source.close() }
+      }, [refresh])
 
-      const selectedList = candidates.filter((candidate) => selected.has(candidate.id))
-      const selectedBytes = selectedList.reduce((sum, candidate) => sum + (candidate.bytes || 0), 0)
-      const selectedHasDelete = selectedList.some((candidate) => candidate.method === 'delete')
-      const hasSnapshot = snapshot !== null && snapshot.disk.total > 0
-      const used = hasSnapshot ? snapshot.disk.used : 0
-      const free = hasSnapshot ? snapshot.disk.free : 0
-      const total = hasSnapshot ? snapshot.disk.total : 0
-      const percent = hasSnapshot ? Math.round((used / total) * 100) : 0
+      useEffect(() => {
+        void refresh()
+        const timer = setInterval(() => { if (!document.hidden) void refresh() }, scanning ? POLL_BUSY_MS : POLL_READ_MS)
+        return () => clearInterval(timer)
+      }, [refresh, scanning])
+
+      useEffect(() => {
+        const onVisibility = () => { if (!document.hidden) void refresh() }
+        document.addEventListener('visibilitychange', onVisibility)
+        return () => document.removeEventListener('visibilitychange', onVisibility)
+      }, [refresh])
+
+      const snapshot = state ? state.snapshot : null
+      const progress = state ? state.progress : null
       const progressPercent = scanning && progress && progress.total > 0 ? Math.round(100 * (progress.done / progress.total)) : 0
 
-      const toggle = (id) => {
-        setSelected((previous) => {
-          const next = new Set(previous)
-          if (next.has(id)) next.delete(id)
-          else next.add(id)
-          return next
-        })
-      }
+      const status = scanning
+        ? h('span', { className: 'dl-live' },
+            h('i', { className: 'dl-live-dot' }),
+            h('span', null, progress && progress.total > 0 ? progress.done + '/' + progress.total : '测量中')
+          )
+        : h('span', { className: 'dl-head-time' }, snapshot ? shortDate(snapshot.createdAt) : '未扫描')
 
-      const startScan = async () => {
-        setError('')
-        setResult(null)
-        if (pending === null) setPending(null)
-        try { await client.scan(); await refresh() } catch (problem) { if (mounted.current) setError(problem instanceof Error ? problem.message : String(problem)) }
-      }
-      const stopScan = async () => { try { await client.cancel() } catch { /* next poll shows */ } void refresh() }
-
-      const requestClean = async () => {
-        if (selected.size === 0) return
-        if (selectedHasDelete && !settings.allowDelete) {
-          setError('选中的建议里有「直接删除」，请先在设置里打开「允许直接删除」')
-          return
-        }
-        setBusy('planning'); setError('')
-        try {
-          const preview = await client.plan([...selected])
-          const steps = (preview.plan && preview.plan.steps) || []
-          setPending({
-            ids: [...selected],
-            script: preview.script || '',
-            count: steps.length,
-            bytes: steps.reduce((sum, step) => sum + (step.bytes || 0), 0),
-            hasDelete: steps.some((step) => step.method === 'delete'),
-          })
-        } catch (problem) { if (mounted.current) setError(problem instanceof Error ? problem.message : String(problem)) }
-        finally { setBusy('idle') }
-      }
-
-      const runClean = async () => {
-        if (pending === null) return
-        if (!pending.ids.every((id) => selected.has(id))) {
-          setPending(null)
-          setError('选择已变化，请重新生成脚本')
-          return
-        }
-        setBusy('cleaning'); setError('')
-        try {
-          const done = await client.clean(pending.ids)
-          setResult({ freed: done.freed || 0, results: done.results || [] })
-          setSelected(new Set()); setPending(null)
-          await refresh()
-        } catch (problem) { if (mounted.current) setError(problem instanceof Error ? problem.message : String(problem)) }
-        finally { setBusy('idle') }
-      }
-
-      const patchSettings = async (patch) => {
-        setBusy('settings')
-        try {
-          const next = await client.settings(patch)
-          setState((previous) => (previous ? { ...previous, settings: next.settings } : previous))
-        } catch (problem) { setError(problem instanceof Error ? problem.message : String(problem)) }
-        finally { setBusy('idle') }
-      }
-
-      return h('div', { className: 'dl-root', 'data-dsh-plugin': 'disk-lens' },
+      return h('div', { className: 'dl-root is-pane', 'data-dsh-plugin': 'disk-lens' },
         h('header', { className: 'dl-head' },
-          h('div', { className: 'dl-brand' },
-            h('h1', { className: 'dl-title' }, '盘面'),
-            h('p', { className: 'dl-sub' }, '规则先量，模型再判断。勾选前先看脚本，删除默认进废纸篓。')
-          ),
-          h('div', { className: 'dl-hero' },
-            h('div', { className: 'dl-hero-item' }, h('span', { className: 'dl-hero-num is-hot' }, hasSnapshot ? rmBytes(used) : '—'), h('span', { className: 'dl-hero-cap' }, '已用')),
-            h('div', { className: 'dl-hero-item' }, h('span', { className: 'dl-hero-num' }, hasSnapshot ? rmBytes(free) : '—'), h('span', { className: 'dl-hero-cap' }, '可用')),
-            h('div', { className: 'dl-hero-item' }, h('span', { className: 'dl-hero-num' }, hasSnapshot ? percent + '%' : '—'), h('span', { className: 'dl-hero-cap' }, '占用'))
-          ),
-          h('div', { className: 'dl-actions' },
-            scanning
-              ? h('button', { className: 'dl-btn is-quiet', onClick: stopScan }, '停止')
-              : h('button', { className: 'dl-btn is-primary', disabled: busy !== 'idle', onClick: startScan }, hasSnapshot ? '重新扫描' : '开始扫描'),
-            h('button', { className: 'dl-btn is-quiet', disabled: busy !== 'idle', onClick: () => { void refresh() } }, '刷新')
+          h('div', { className: 'dl-head-title' }, h(DiskLensIcon, { size: 14 }), h('span', null, '盘面')),
+          h('div', { className: 'dl-head-right' },
+            status,
+            h('button', {
+              type: 'button',
+              className: 'dl-act is-scan' + (scanning ? ' is-busy' : ''),
+              disabled: scanning || busy === 'scan',
+              onClick: () => { void act('/scan', {}, 'scan') },
+            }, scanning ? '扫描中' : '扫描')
           )
         ),
 
-        h('div', { className: 'dl-strip' }, h(CapacityBar, { snapshot, scanning, progress, active, onSelect: setActive })),
-
-        h('div', { className: 'dl-main' },
-          h('div', { className: 'dl-cats' }, h(CategoryList, { snapshot, active, onSelect: setActive })),
-          h(SuggestionList, { snapshot, selected, onToggle: toggle, allowDelete: settings.allowDelete }),
-          h(ChatPanel, { chat, input: chatInput, onInput: setChatInput, onSend: sendChat, sending })
-        ),
-
-        h('footer', { className: 'dl-foot-bar' },
-          h('span', { className: 'dl-foot-status' },
-            scanning
-              ? '测量中 ' + progressPercent + '% · ' + ((progress && progress.path) || '准备中…')
-              : hasSnapshot
-                ? '上次扫描 ' + shortDate(snapshot.createdAt) + ' · ' + snapshot.categories.length + ' 类 · ' + candidates.length + ' 条建议'
-                : '还没有扫描。点「开始扫描」，只读测量，不会删任何东西。'
-          ),
-          h('span', { className: 'dl-foot-selected' }, selected.size > 0
-            ? '已选 ' + selected.size + ' 条 · ' + rmBytes(selectedBytes) + (selectedHasDelete && !settings.allowDelete ? ' · 含删除（未开启）' : '')
-            : ''),
-          h('div', { className: 'dl-actions' },
-            h('button', { className: 'dl-btn is-quiet dl-narrow-only', onClick: () => setDrawer('cats') }, '分类'),
-            h('button', { className: 'dl-btn is-quiet dl-narrow-only', onClick: () => setDrawer('chat') }, '对话'),
-            h('button', { className: 'dl-btn is-quiet', onClick: () => setDrawer('audit') }, '审计'),
-            h('button', { className: 'dl-btn is-quiet', onClick: () => setDrawer('settings') }, '设置'),
-            h('button', { className: 'dl-btn is-primary', disabled: selected.size === 0 || busy !== 'idle' || scanning, onClick: requestClean }, busy === 'planning' ? '准备脚本…' : '执行清理')
-          )
-        ),
-
-        error !== ''
-          ? h('div', { className: 'dl-error-bar' }, h('span', null, error), h('button', { 'aria-label': '关闭', onClick: () => setError('') }, '×'))
-          : null,
-
-        drawer === 'audit'
-          ? h(Drawer, { title: '审计', onClose: () => setDrawer('') }, h(AuditPanel, { audit }))
-          : null,
-        drawer === 'settings'
-          ? h(Drawer, { title: '设置', onClose: () => setDrawer('') },
-              h('div', null,
-                h(SettingsPanel, { settings, rules, models, onPatch: patchSettings, busy: busy === 'settings' }),
-                h('p', { className: 'dl-drawer-note' }, '模型与思考强度在主对话的模型菜单里选；这里的对话就是当前会话。')
-              )
+        scanning
+          ? h('div', { className: 'dl-progress' },
+              h('div', { className: 'dl-progress-fill', style: { width: progressPercent + '%' } }),
+              h('span', null, (progress && progress.path) || '准备中…')
             )
           : null,
-        drawer === 'cats'
-          ? h(Drawer, { title: '分类', onClose: () => setDrawer('') }, h(CategoryList, { snapshot, active, onSelect: setActive }))
-          : null,
-        drawer === 'chat'
-          ? h(Drawer, { title: '对话', onClose: () => setDrawer('') }, h(ChatPanel, { chat, input: chatInput, onInput: setChatInput, onSend: sendChat, sending, embedded: true }))
-          : null,
 
-        pending !== null
-          ? h(ConfirmDialog, { pending, cleaning: busy === 'cleaning', allowDelete: settings.allowDelete, onCancel: () => { if (busy !== 'cleaning') setPending(null) }, onConfirm: runClean })
-          : null,
-        result !== null ? h(Toast, { result, onClose: closeResult }) : null
+        error !== '' ? h('div', { className: 'dl-error' }, error) : null,
+
+        h('section', { className: 'dl-board' },
+          h(Gauge, { snapshot, changed, hot, onHot: setHot }),
+          h(CategoryList, { snapshot, changed, onHot: setHot }),
+          h(SuggestionList, {
+            snapshot,
+            onHot: setHot,
+            onClean: clean,
+            onCleanAll: cleanAll,
+            armed,
+            busy,
+          }),
+          h(FileList, { snapshot, onReveal: reveal, busy })
+        ),
+
+        snapshot && snapshot.headline ? h('p', { className: 'dl-headline' }, snapshot.headline) : null,
+        snapshot && snapshot.summary ? h('p', { className: 'dl-summary' }, snapshot.summary) : null
       )
     }
 
-    function DiskLensIcon() {
-      return h('svg', { width: '18', height: '18', viewBox: '0 0 18 18', 'aria-hidden': 'true' },
+    function PaneTitle() {
+      return h('span', { className: 'dl-pane-chip' }, h(DiskLensIcon, { size: 12 }), h('span', null, '盘面'))
+    }
+
+    function DiskLensIcon({ size }) {
+      const px = size || 15
+      return h('svg', { width: px, height: px, viewBox: '0 0 18 18', 'aria-hidden': 'true' },
         h('path', { d: 'M2 13.5 2 15h14v-1.5H2Z', fill: 'currentColor', opacity: 0.45 }),
         h('path', { d: 'M2.5 10.2c2.6-2.6 4.2.6 6.6-1.4 2-1.7 3.4-1 6.4.9v3.3h-13v-2.8Z', fill: 'currentColor', opacity: 0.75 }),
         h('path', { d: 'M4.5 6.6c1.9-2 3.4-.4 5.2-1.9 1.3-1.1 2.6-.3 4.1.9V9c-2.6-1.8-4-2.4-5.8-.8-2 1.8-3.4-.8-5.4 1.1V6.4l1.9.2Z', fill: 'currentColor' })
       )
     }
 
+    function definition() {
+      return {
+        id: TAB_ID,
+        kind: KIND,
+        priority: 'builtin',
+        title: () => '盘面',
+        guide: [{
+          id: 'disk-lens',
+          order: 42,
+          title: () => '盘面',
+          description: () => '磁盘占用与清理建议',
+          icon: DiskLensIcon,
+        }],
+      }
+    }
+
     function install(ctx) {
-      ctx.inject(['slots'], (scope) => {
-        const disposers = []
-        const api = new Api()
-        disposers.push(scope.slots.inject('sidebar.panellist', () => scope.slots.register({
-          name: 'sidebar.panellist',
-          id: PANEL_ID,
-          order: 36,
-          label: () => '盘面',
-        }, DiskLensIcon)))
-        disposers.push(scope.slots.inject('main', () => scope.slots.register({
-          name: 'main',
-          key: PANEL_ID,
-          inject: () => ({ api }),
-        }, DiskLensPage)))
-        return () => { for (const dispose of disposers.splice(0)) dispose() }
-      }, 'dsh-disk-lens: panel')
+      ctx.inject(['slots', 'sidebarRightTabs'], (scope) => {
+        try {
+          scope.effect(() => scope.sidebarRightTabs.register(definition()), 'dsh-disk-lens: tab type')
+        } catch (problem) {
+          console.warn('dsh-disk-lens: tab type not registered', problem)
+        }
+        scope.effect(() => scope.slots.inject('sidebar.right.pane.tab', () => scope.slots.register({
+          name: 'sidebar.right.pane.tab',
+          key: TAB_ID,
+          inject: () => ({ api: new Reader() }),
+        }, DiskLensPane)), 'dsh-disk-lens: tab body')
+        scope.effect(() => scope.slots.inject('sidebar.right.pane.tab.title', () => scope.slots.register({
+          name: 'sidebar.right.pane.tab.title',
+          key: TAB_ID,
+        }, PaneTitle)), 'dsh-disk-lens: tab title')
+      }, 'dsh-disk-lens: right pane')
     }
 
     const moduleValue = { exports: {} }
     moduleValue.exports.apply = install
-    moduleValue.exports.inject = ['slots']
+    moduleValue.exports.inject = ['slots', 'sidebarRightTabs']
     return moduleValue.exports
   },
 })

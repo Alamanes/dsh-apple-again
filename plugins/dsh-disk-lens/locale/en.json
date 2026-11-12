@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Disk Lens",
-    "description": "Disk panel: rule-based scan, sand capacity map, reviewable cleanup suggestions."
+    "description": "Read-only disk pane in the right sidebar: rule-based scan results and cleanup suggestions, driven from the main conversation."
   },
   "panel": {
     "label": "Disk Lens"

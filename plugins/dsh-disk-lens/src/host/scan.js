@@ -21,15 +21,21 @@ const REGENERABLE = new Set([
 
 const DENIED_RE = /(: Operation not permitted|: Permission denied)/
 
-/** Total and free bytes, matching Finder's capacity reading. */
+/**
+ * What the Data volume actually holds. df's used column is the real number:
+ * total minus "available" also swallows the space APFS calls reclaimable,
+ * which the panel used to draw as if it were files.
+ */
 export async function diskSpace() {
   const df = await run('/bin/df', ['-k', '/System/Volumes/Data'])
   const lines = df.stdout.trim().split('\n')
   const cols = lines[lines.length - 1].trim().split(/\s+/)
   const total = Number(cols[1]) * 1024
-  const free = Number(cols[3]) * 1024
+  const used = Number(cols[2]) * 1024
+  const available = Number(cols[3]) * 1024
   const smart = await jxaFree()
-  return { total, free: Math.min(total, Math.max(free, smart ?? 0)) }
+  const reclaimable = Math.max(0, (Number.isFinite(smart) ? smart : available) - available)
+  return { total, used, available, reclaimable }
 }
 
 function jxaFree() {
@@ -75,6 +81,7 @@ export function measurePath(target, { signal, timeoutMs = PATH_TIMEOUT_MS, onLin
     let lastKb = 0
     let timedOut = false
     let denied = false
+    let deniedCount = 0
     const bigFiles = []
     const regenerable = []
 
@@ -84,7 +91,7 @@ export function measurePath(target, { signal, timeoutMs = PATH_TIMEOUT_MS, onLin
       totalKb = rootKb || lastKb
       clearTimeout(timer)
       if (signal) signal.removeEventListener('abort', abort)
-      resolve({ path: absolute, display: displayPath(absolute), bytes: totalKb * 1024, status, bigFiles, regenerable })
+      resolve({ path: absolute, display: displayPath(absolute), bytes: totalKb * 1024, status, bigFiles, regenerable, deniedCount })
     }
     const timer = setTimeout(() => { timedOut = true; child?.kill('SIGKILL'); finish('timeout') }, timeoutMs)
     const abort = () => { child?.kill('SIGKILL'); finish('cancel') }
@@ -129,7 +136,7 @@ export function measurePath(target, { signal, timeoutMs = PATH_TIMEOUT_MS, onLin
     child.stderr.on('data', (chunk) => {
       const text = chunk.toString('utf8')
       stderrText += text
-      if (DENIED_RE.test(text)) denied = true
+      if (DENIED_RE.test(text)) { denied = true; deniedCount += 1 }
     })
     child.on('error', () => finish('failed'))
     child.on('close', (code) => {
@@ -162,13 +169,14 @@ export async function scanDisk({ rules, concurrency = 4, signal, onProgress } = 
   const results = new Map()
   const index = { bigFiles: [], dirs: [], regenerable: [] }
   const denied = []
+  let deniedCount = 0
 
   const targets = []
   for (const rule of rules) for (const item of rule.items) targets.push({ ruleId: rule.id, item })
   const total = targets.length
   let done = 0
 
-  const disk = await diskSpace().catch(() => ({ total: 0, free: 0 }))
+  const disk = await diskSpace().catch(() => ({ total: 0, used: 0, available: 0, reclaimable: 0 }))
 
   const queue = targets.slice()
   const workers = Array.from({ length: Math.max(1, Math.min(6, concurrency)) }, async () => {
@@ -185,6 +193,7 @@ export async function scanDisk({ rules, concurrency = 4, signal, onProgress } = 
       results.set(next.item.path, result)
       measured.set(next.item.path, result.bytes)
       if (result.status === 'denied') denied.push(result.display)
+      deniedCount += result.deniedCount ?? 0
       if (result.status !== 'ok' && result.status !== 'denied' && result.status !== 'missing') {
         warnings.push(result.display + '：' + result.status)
       }
@@ -230,14 +239,16 @@ export async function scanDisk({ rules, concurrency = 4, signal, onProgress } = 
     })
   }
 
-  const used = Math.max(0, disk.total - disk.free)
+  const used = Math.max(0, disk.used ?? (disk.total - (disk.available ?? 0)))
   const unaccounted = Math.max(0, used - accounted)
   if (unaccounted > 0) {
     categories.push({
       id: 'unaccounted',
       family: 'system',
-      name: '尚未归类',
-      note: '规则表覆盖了已用空间的 ' + Math.round((accounted / Math.max(1, used)) * 100) + '%，其余多半在 ~/Library 的未测子目录里，可以让模型接着查。',
+      name: '量不到',
+      note: deniedCount > 0
+        ? '系统拒绝了 ' + deniedCount + ' 个目录的读取权限，那部分体积落在这里。'
+        : '规则表没覆盖到的目录。',
       readOnly: true,
       bytes: unaccounted,
       items: [],
@@ -249,12 +260,18 @@ export async function scanDisk({ rules, concurrency = 4, signal, onProgress } = 
     id: 'disk-' + Date.now(),
     createdAt: new Date().toISOString(),
     source: 'rule',
-    disk: { total: disk.total, free: disk.free, used },
+    disk: {
+      total: disk.total,
+      used,
+      available: disk.available ?? Math.max(0, disk.total - used),
+      reclaimable: disk.reclaimable ?? 0,
+    },
     categories,
     accounted,
     unaccounted,
     index,
     denied,
+    deniedCount,
     warnings,
     durationMs: Date.now() - startedAt,
   }

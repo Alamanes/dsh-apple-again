@@ -1,21 +1,20 @@
 // dsh-disk-lens — host half.
 //
-// One snapshot, one scanner, one audit log. The panel talks to the routes
-// below; the model talks to the four tools. Nothing here runs a model by
-// itself: a scan is deterministic, and an analysis only happens when the user
-// asks for it in the chat.
+// One snapshot, one scanner, one audit log. The right-sidebar pane is read-only
+// and reads GET /state; every action is a tool the model calls in the main
+// conversation: disk_scan, disk_state, disk_propose, disk_clean.
 
 import { readFile } from 'node:fs/promises'
+import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createStore } from './host/store.js'
 import { createTools, candidatesOf } from './host/tools.js'
-import { createChat } from './host/chat.js'
-import { RULES, RULE_MAP } from './host/rules.js'
+import { RULES } from './host/rules.js'
 import { scanDisk } from './host/scan.js'
-import { buildPlan, renderScript, executePlan, formatBytes } from './host/clean.js'
-import { checkCommand, checkPath, reviewKey, displayPath } from './host/guard.js'
+import { buildPlan, renderScript, executePlan } from './host/clean.js'
+import { checkCommand, checkPath, reviewKey } from './host/guard.js'
 
 const LIB = dirname(fileURLToPath(import.meta.url))
 const STYLE_FILE = join(LIB, '..', 'lib', 'styles.css')
@@ -28,24 +27,6 @@ const SAFETY = new Set(['safe', 'review', 'careful'])
 function writeJson(res, status, value) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
   res.end(JSON.stringify(value))
-}
-
-function readJsonBody(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = []
-    let size = 0
-    req.on('data', (chunk) => {
-      size += chunk.length
-      if (size > 1_000_000) { reject(new Error('body too large')); req.destroy(); return }
-      chunks.push(chunk)
-    })
-    req.on('end', () => {
-      const text = Buffer.concat(chunks).toString('utf8').trim()
-      if (text === '') return resolve({})
-      try { resolve(JSON.parse(text)) } catch (error) { reject(error) }
-    })
-    req.on('error', reject)
-  })
 }
 
 function isLoopback(req) {
@@ -61,6 +42,24 @@ export function apply(ctx, config) {
   const dataDir = config?.dataDir ?? join(dshHome, 'storages', 'dsh-disk-lens')
   const store = createStore({ root: dataDir })
   const warn = (message) => { try { ctx.logger?.warn?.('dsh-disk-lens: ' + message) } catch { /* no logger */ } }
+
+  // The pane subscribes over SSE, so a tool call redraws it the moment it lands
+  // instead of waiting for the next poll.
+  const listeners = new Set()
+  const notify = (reason) => {
+    if (listeners.size === 0) return
+    const payload = 'data: ' + JSON.stringify({ reason, at: Date.now() }) + '\n\n'
+    for (const res of listeners) {
+      try { res.write(payload) } catch { listeners.delete(res) }
+    }
+  }
+  let notifiedAt = 0
+  const notifySoon = (reason, gap = 600) => {
+    const now = Date.now()
+    if (now - notifiedAt < gap) return
+    notifiedAt = now
+    notify(reason)
+  }
 
   const engine = {
     snapshot: null,
@@ -90,6 +89,7 @@ export function apply(ctx, config) {
       this.startedAt = Date.now()
       this.error = ''
       this.progress = { done: 0, total: rules.reduce((sum, rule) => sum + rule.items.length, 0), path: '' }
+      notify('scan-start')
       const controller = new AbortController()
       this.controller = controller
       this.canceled = false
@@ -100,6 +100,7 @@ export function apply(ctx, config) {
       }
       const forward = (event) => {
         this.progress = { done: event.done, total: event.total, path: event.path, bytes: event.bytes, status: event.status }
+        notifySoon('scan-progress')
       }
       try {
         const snapshot = await scanDisk({ rules, concurrency: settings.concurrency ?? 4, signal: controller.signal, onProgress: forward })
@@ -125,16 +126,8 @@ export function apply(ctx, config) {
         this.scanning = false
         this.controller = null
         this.progress = { done: 0, total: 0, path: '' }
+        notify('scan-end')
       }
-    },
-
-    cancel() {
-      const running = this.controller !== null
-      if (running) {
-        this.canceled = true
-        this.controller.abort()
-      }
-      return { cancelled: running }
     },
 
     propose(args) {
@@ -160,6 +153,7 @@ export function apply(ctx, config) {
       this.snapshot = next
       void store.setSnapshot(next)
       void store.audit({ kind: 'propose', categories: (args?.categories ?? []).length, refused: refused.length })
+      notify('proposed')
       const lines = ['已写入 ' + (args?.categories ?? []).length + ' 个分类。']
       if (refused.length > 0) lines.push('被拒绝：', ...refused)
       return lines.join('\n')
@@ -196,21 +190,15 @@ export function apply(ctx, config) {
           ...category,
           cleanup: (category.cleanup ?? []).filter((candidate) => !done.has(candidate.id)),
         }))
-        next.headline = next.headline
         this.snapshot = next
         await store.setSnapshot(next)
       }
       await store.setPlan({ ...plan, script: renderScript(plan) })
       await store.audit({ kind: 'clean', by, ids: [...wanted], freed: result.freed, results: result.results })
+      notify('cleaned')
       return { ...result, plan, steps }
     },
   }
-
-  const chat = createChat({
-    engine,
-    getLlm: () => ctx.get('llm'),
-    getSelection: () => ctx.get('agentDefaultModel')?.currentSelection?.() ?? null,
-  })
 
   function normalizeCategory(raw) {
     const id = String(raw?.id ?? '').trim()
@@ -269,6 +257,23 @@ export function apply(ctx, config) {
     return candidate
   }
 
+  /** Read a small JSON body; anything larger is refused. */
+  function readBody(req) {
+    return new Promise((resolve, reject) => {
+      let text = ''
+      req.on('data', (chunk) => {
+        text += chunk
+        if (text.length > 262144) { reject(new Error('body too large')); req.destroy() }
+      })
+      req.on('end', () => {
+        if (text === '') return resolve({})
+        try { resolve(JSON.parse(text)) } catch { reject(new Error('bad json')) }
+      })
+      req.on('error', reject)
+    })
+  }
+
+  // One read route: the pane has no way to write anything.
   const get = (path, run) => ({
     kind: 'exact',
     path: ROUTE_BASE + path,
@@ -285,6 +290,8 @@ export function apply(ctx, config) {
     },
   })
 
+  // The few things the pane may do without the model: start a scan, run the
+  // suggestions already in the snapshot, and reveal a file the scan found.
   const post = (path, run) => ({
     kind: 'exact',
     path: ROUTE_BASE + path,
@@ -293,7 +300,7 @@ export function apply(ctx, config) {
         try {
           if (!isLoopback(req)) return writeJson(res, 403, { ok: false, error: 'loopback only' })
           if (req.method !== 'POST') return writeJson(res, 405, { ok: false, error: 'POST only' })
-          const body = await readJsonBody(req)
+          const body = await readBody(req)
           writeJson(res, 200, { ok: true, ...(await run(body)) })
         } catch (error) {
           writeJson(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
@@ -304,28 +311,6 @@ export function apply(ctx, config) {
 
   ctx.inject(['webServer'], (scope) => {
     const routes = [
-      get('/models', async () => {
-        const llm = ctx.get('llm')
-        if (!llm) return { providers: [], selection: chat.state().model }
-        const out = []
-        for (const provider of llm.listProviders()) {
-          const models = await llm.listModels(provider.id).catch(() => [])
-          const rows = []
-          for (const model of Array.isArray(models) ? models : []) {
-            const info = await llm.resolveModelInfo(provider.id, model.id).catch(() => null)
-            rows.push({ id: model.id, name: model.name ?? model.id, efforts: info?.reasoning?.efforts ?? [] })
-          }
-          if (rows.length > 0) out.push({ id: provider.id, name: provider.name ?? provider.id, models: rows })
-        }
-        return { providers: out, selection: chat.state().model }
-      }),
-      get('/chat', async () => chat.state()),
-      post('/chat/send', async (body) => {
-        void chat.send(body?.text).catch((error) => { warn('chat failed: ' + (error instanceof Error ? error.message : String(error))) })
-        return { started: true }
-      }),
-      post('/chat/cancel', async () => ({ cancelled: chat.cancel() })),
-      post('/chat/clear', async () => { chat.clear(); return { cleared: true } }),
       get('/state', async () => {
         await engine.load()
         return {
@@ -342,46 +327,25 @@ export function apply(ctx, config) {
         }
       }),
       get('/style', async () => ({})),
-      post('/scan', async (body) => {
-        if (engine.scanning) return { started: false, scanning: true }
-        void engine.scan({ ruleIds: Array.isArray(body?.rules) ? body.rules : undefined }).catch(() => {})
+      post('/scan', async () => {
+        if (engine.scanning) throw new Error('已经在扫描了')
+        void engine.scan().catch((error) => { warn('scan failed: ' + error) })
         return { started: true }
       }),
-      post('/cancel', async () => engine.cancel()),
-      post('/plan', async (body) => {
-        await engine.load()
-        if (engine.snapshot === null) throw new Error('没有可清理的建议')
-        const wanted = new Set((body?.ids ?? []).map(String))
-        const selected = candidatesOf(engine.snapshot).filter((candidate) => wanted.has(candidate.id))
-        if (selected.length === 0) throw new Error('没有选中任何建议')
-        const settings = await store.getSettings()
-        const plan = buildPlan(selected, settings)
-        return { plan, script: renderScript(plan) }
-      }),
       post('/clean', async (body) => {
-        const result = await engine.clean(body?.ids, { by: 'panel' })
-        return { freed: result.freed, results: result.results, plan: result.plan }
+        const ids = Array.isArray(body?.ids) ? body.ids.filter((id) => typeof id === 'string') : []
+        if (ids.length === 0) throw new Error('没有选中任何建议')
+        const result = await engine.clean(ids, { by: 'user' })
+        return { freed: result.freed, results: result.results }
       }),
-      post('/settings', async (body) => {
-        const patch = {}
-        if (typeof body?.allowDelete === 'boolean') patch.allowDelete = body.allowDelete
-        if (body?.chatModel && typeof body.chatModel === 'object') {
-          const provider = String(body.chatModel.provider ?? '')
-          const model = String(body.chatModel.model ?? '')
-          if (provider !== '' && model !== '') {
-            patch.chatModel = {
-              provider,
-              model,
-              reasoningEffort: typeof body.chatModel.reasoningEffort === 'string' ? body.chatModel.reasoningEffort : 'low',
-            }
-            chat.setModel(patch.chatModel)
-          }
-        }
-        if (Array.isArray(body?.disabledRules)) patch.disabledRules = body.disabledRules.map(String)
-        if (typeof body?.concurrency === 'number') patch.concurrency = Math.max(1, Math.min(6, Math.round(body.concurrency)))
-        return { settings: await store.setSettings(patch) }
+      post('/reveal', async (body) => {
+        await engine.load()
+        const target = String(body?.path ?? '')
+        const allowed = new Set((engine.snapshot?.index?.bigFiles ?? []).map((file) => file.path))
+        if (!allowed.has(target)) throw new Error('不在大文件列表里')
+        spawn('/usr/bin/open', ['-R', target], { detached: true, stdio: 'ignore' }).unref()
+        return {}
       }),
-      get('/audit', async () => ({ audit: await store.auditLog(200) })),
     ]
     // The stylesheet is a file, not a JSON payload: serve it before the JSON routes.
     const styleRoute = {
@@ -398,7 +362,32 @@ export function apply(ctx, config) {
         }
       },
     }
-    const all = routes.filter((route) => route.path !== ROUTE_BASE + '/style').concat([styleRoute])
+    // Server-sent events: one long-lived GET per open pane, no writes.
+    const eventRoute = {
+      kind: 'exact',
+      path: ROUTE_BASE + '/events',
+      handler: (req, res) => {
+        if (!isLoopback(req)) { res.writeHead(403); res.end(); return }
+        if (req.method !== 'GET') { res.writeHead(405); res.end(); return }
+        res.writeHead(200, {
+          'content-type': 'text/event-stream; charset=utf-8',
+          'cache-control': 'no-cache, no-transform',
+          connection: 'keep-alive',
+          'x-accel-buffering': 'no',
+        })
+        if (typeof res.flushHeaders === 'function') res.flushHeaders()
+        res.write('retry: 1500\n\n')
+        listeners.add(res)
+        const keep = setInterval(() => {
+          try { res.write(': keep-alive\n\n') } catch { clearInterval(keep) }
+        }, 20000)
+        const drop = () => { clearInterval(keep); listeners.delete(res) }
+        req.on('close', drop)
+        req.on('error', drop)
+        res.on('close', drop)
+      },
+    }
+    const all = routes.filter((route) => route.path !== ROUTE_BASE + '/style').concat([styleRoute, eventRoute])
     scope.effect(() => {
       const disposers = all.map((route) => scope.webServer.register(route)).filter((dispose) => typeof dispose === 'function')
       return () => { for (const dispose of disposers) dispose() }
@@ -419,11 +408,6 @@ export function apply(ctx, config) {
     }
   }, 'dsh-disk-lens: tools')
 
-  void engine.load()
-    .then(async () => {
-      const settings = await store.getSettings()
-      if (settings.chatModel) chat.setModel(settings.chatModel)
-    })
-    .catch(() => {})
+  void engine.load().catch(() => {})
   ctx.logger?.info?.('dsh-disk-lens: state at ' + dataDir)
 }
