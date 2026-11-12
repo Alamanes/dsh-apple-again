@@ -11,7 +11,6 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createStore } from './host/store.js'
 import { createTools, candidatesOf } from './host/tools.js'
-import { createChat } from './host/chat.js'
 import { RULES, RULE_MAP } from './host/rules.js'
 import { scanDisk } from './host/scan.js'
 import { buildPlan, renderScript, executePlan, formatBytes } from './host/clean.js'
@@ -186,13 +185,6 @@ export function apply(ctx, config) {
     },
   }
 
-  const chat = createChat({
-    engine,
-    store,
-    getLlm: () => ctx.get('llm'),
-    getSelection: () => ctx.get('agentDefaultModel')?.currentSelection?.() ?? null,
-  })
-
   function normalizeCategory(raw) {
     const id = String(raw?.id ?? '').trim()
     if (id === '') throw new Error('分类缺少 id')
@@ -285,28 +277,6 @@ export function apply(ctx, config) {
 
   ctx.inject(['webServer'], (scope) => {
     const routes = [
-      get('/models', async () => {
-        const llm = ctx.get('llm')
-        if (!llm) return { providers: [], selection: chat.state().model }
-        const out = []
-        for (const provider of llm.listProviders()) {
-          const models = await llm.listModels(provider.id).catch(() => [])
-          const rows = []
-          for (const model of Array.isArray(models) ? models : []) {
-            const info = await llm.resolveModelInfo(provider.id, model.id).catch(() => null)
-            rows.push({ id: model.id, name: model.name ?? model.id, efforts: info?.reasoning?.efforts ?? [] })
-          }
-          if (rows.length > 0) out.push({ id: provider.id, name: provider.name ?? provider.id, models: rows })
-        }
-        return { providers: out, selection: chat.state().model }
-      }),
-      get('/chat', async () => chat.state()),
-      post('/chat/send', async (body) => {
-        void chat.send(body?.text).catch((error) => { warn('chat failed: ' + (error instanceof Error ? error.message : String(error))) })
-        return { started: true }
-      }),
-      post('/chat/cancel', async () => ({ cancelled: chat.cancel() })),
-      post('/chat/clear', async () => { chat.clear(); return { cleared: true } }),
       get('/state', async () => {
         await engine.load()
         return {
@@ -346,18 +316,6 @@ export function apply(ctx, config) {
       post('/settings', async (body) => {
         const patch = {}
         if (typeof body?.allowDelete === 'boolean') patch.allowDelete = body.allowDelete
-        if (body?.chatModel && typeof body.chatModel === 'object') {
-          const provider = String(body.chatModel.provider ?? '')
-          const model = String(body.chatModel.model ?? '')
-          if (provider !== '' && model !== '') {
-            patch.chatModel = {
-              provider,
-              model,
-              reasoningEffort: typeof body.chatModel.reasoningEffort === 'string' ? body.chatModel.reasoningEffort : 'low',
-            }
-            chat.setModel(patch.chatModel)
-          }
-        }
         if (Array.isArray(body?.disabledRules)) patch.disabledRules = body.disabledRules.map(String)
         if (typeof body?.concurrency === 'number') patch.concurrency = Math.max(1, Math.min(6, Math.round(body.concurrency)))
         return { settings: await store.setSettings(patch) }
@@ -400,11 +358,6 @@ export function apply(ctx, config) {
     }
   }, 'dsh-disk-lens: tools')
 
-  void engine.load()
-    .then(async () => {
-      const settings = await store.getSettings()
-      if (settings.chatModel) chat.setModel(settings.chatModel)
-    })
-    .catch(() => {})
+  void engine.load().catch(() => {})
   ctx.logger?.info?.('dsh-disk-lens: state at ' + dataDir)
 }
