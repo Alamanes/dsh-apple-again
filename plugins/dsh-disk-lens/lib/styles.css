@@ -1,15 +1,15 @@
 /* dsh-disk-lens — the disk panel. One root class, everything scoped under it.
-   Colours follow the harness theme through --dshui-* and fall back to a warm
-   graphite of their own when the theme is absent. */
+   Colours follow the harness theme through --dsw-alias-* and fall back to a
+   warm graphite of their own when the theme is absent. */
 
 .dl-root {
-  --dl-bg: var(--dshui-palette-base, #101214);
-  --dl-layer: var(--dshui-palette-layer-1, #171a1d);
-  --dl-layer-2: var(--dshui-palette-layer-2, #1e2226);
-  --dl-line: var(--dshui-neutral-stroke, rgba(255, 255, 255, 0.09));
-  --dl-ink: var(--dshui-ink, #e9e4dc);
-  --dl-dim: color-mix(in srgb, var(--dl-ink) 58%, transparent);
-  --dl-faint: color-mix(in srgb, var(--dl-ink) 32%, transparent);
+  --dl-bg: var(--dsw-alias-bg-base, #101214);
+  --dl-layer: var(--dsw-alias-bg-layer-1, #171a1d);
+  --dl-layer-2: var(--dsw-alias-bg-layer-2, #1e2226);
+  --dl-line: var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.12));
+  --dl-ink: var(--dsw-alias-label-primary, #e9e4dc);
+  --dl-dim: var(--dsw-alias-label-secondary, rgba(233, 228, 220, 0.66));
+  --dl-faint: var(--dsw-alias-label-tertiary, rgba(233, 228, 220, 0.46));
   --dl-content: #d99a5b;
   --dl-tools: #7c9fd8;
   --dl-caches: #5fb3a6;

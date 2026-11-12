@@ -148,23 +148,23 @@ window.__ModuleLoader__.load({
         h('svg', { viewBox: '0 0 ' + width + ' ' + 258, preserveAspectRatio: 'none', role: 'img', 'aria-label': '磁盘容量沙盘' },
           h('defs', null,
             h('pattern', { id: 'dl-grain', width: '6', height: '6', patternUnits: 'userSpaceOnUse' },
-              h('circle', { cx: '2', cy: '2', r: '0.9', fill: 'rgba(255,255,255,0.18)' })),
+              h('circle', { cx: '2', cy: '2', r: '0.9', fill: 'color-mix(in srgb, var(--dl-ink) 22%, transparent)' })),
             h('linearGradient', { id: 'dl-fade', x1: '0', y1: '0', x2: '0', y2: '1' },
-              h('stop', { offset: '0', stopColor: 'rgba(255,255,255,0.05)' }),
+              h('stop', { offset: '0', stopColor: 'color-mix(in srgb, var(--dl-ink) 7%, transparent)' }),
               h('stop', { offset: '1', stopColor: 'rgba(0,0,0,0.22)' }))
           ),
           // raked flat bed for free space
           h('g', null,
-            h('rect', { x: rakeX0, y: baseY - 6, width: rakeWidth, height: 7, fill: 'rgba(255,255,255,0.08)' }),
+            h('rect', { x: rakeX0, y: baseY - 6, width: rakeWidth, height: 7, fill: 'color-mix(in srgb, var(--dl-ink) 12%, transparent)' }),
             Array.from({ length: 14 }).map((_, index) => {
               const y = baseY - 46 + index * 3.2
               return h('line', {
                 key: 'rake-' + index,
                 x1: rakeX0 + 6, x2: rakeX0 + rakeWidth - 6, y1: y, y2: y - 16,
-                stroke: 'rgba(255,255,255,0.055)', strokeWidth: '1.4',
+                stroke: 'color-mix(in srgb, var(--dl-ink) 9%, transparent)', strokeWidth: '1.4',
               })
             }),
-            h('text', { x: rakeX0 + rakeWidth / 2, y: baseY - 66, textAnchor: 'middle', fill: 'rgba(255,255,255,0.32)', fontSize: '11', fontFamily: 'var(--dl-mono)' }, '可用 ' + rmBytes(free))
+            h('text', { x: rakeX0 + rakeWidth / 2, y: baseY - 66, textAnchor: 'middle', fill: 'var(--dl-faint)', fontSize: '11', fontFamily: 'var(--dl-mono)' }, '可用 ' + rmBytes(free))
           ),
           stones.map((stone, index) => {
             const color = FAMILY_COLOR[stone.category.family] || 'var(--dl-system)'
@@ -177,15 +177,16 @@ window.__ModuleLoader__.load({
               tabIndex: 0,
               onKeyDown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(isActive ? '' : stone.category.id) } },
             },
-              h('path', { d: sandPath(stone.x0 + 1.5, stone.x1 - 1.5, baseY, stone.height, index * 1.7), fill: color, opacity: isActive ? 1 : 0.86 }),
+              h('path', { d: sandPath(stone.x0 + 1.5, stone.x1 - 1.5, baseY, stone.height, index * 1.7), fill: color, opacity: isActive ? 1 : 0.88 }),
               h('path', { d: sandPath(stone.x0 + 1.5, stone.x1 - 1.5, baseY, stone.height, index * 1.7), fill: 'url(#dl-grain)' }),
+              h('path', { d: sandPath(stone.x0 + 1.5, stone.x1 - 1.5, baseY, stone.height, index * 1.7), fill: 'url(#dl-fade)' }),
               stone.x1 - stone.x0 > 96 ? h('text', {
                 x: (stone.x0 + stone.x1) / 2, y: baseY - stone.height - 12,
-                textAnchor: 'middle', fill: 'rgba(255,255,255,0.62)', fontSize: '11.5', fontFamily: 'var(--dl-mono)',
+                textAnchor: 'middle', fill: 'var(--dl-dim)', fontSize: '11.5', fontFamily: 'var(--dl-mono)',
               }, rmBytes(stone.category.bytes)) : null,
               stone.x1 - stone.x0 > 132 ? h('text', {
                 x: (stone.x0 + stone.x1) / 2, y: baseY + 18,
-                textAnchor: 'middle', fill: 'rgba(255,255,255,0.5)', fontSize: '11',
+                textAnchor: 'middle', fill: 'var(--dl-faint)', fontSize: '11',
               }, stone.category.name) : null
             )
           })
