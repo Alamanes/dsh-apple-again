@@ -26,8 +26,8 @@ export const RULES = [
     cleanup: () => [{
       id: 'app-caches:clear',
       label: '应用缓存（不含 Apple 自身）',
-      why: '缓存被重新生成，删除不影响数据，只是下次打开稍慢。',
-      safety: 'safe',
+      why: '缓存被重新生成，删除不影响数据，只是下次打开稍慢；打开中的应用可能正在写缓存，先关掉它们。',
+      safety: 'review',
       method: 'command',
       command: CACHE_COMMAND,
     }],
@@ -90,10 +90,66 @@ export const RULES = [
     name: '下载与安装包',
     note: '下载目录里的安装包与大文件，删前请确认还装得上。',
     items: [{ label: '~/Downloads', path: '~/Downloads' }],
-    cleanup: (measured) => {
-      const size = measured.get('~/Downloads') ?? 0
-      return size > 0 ? [{ id: 'downloads:old', label: '下载目录里的大文件', why: '下载目录通常堆着装完就没用的镜像与压缩包，请先看一遍内容。', bytes: size, safety: 'careful', method: 'trash', paths: ['~/Downloads'] }] : []
-    },
+    // Measured only. Trashing a whole Downloads folder in one tick is exactly
+    // the kind of suggestion that should never be auto-generated.
+    cleanup: () => [],
+  },
+  {
+    id: 'documents',
+    family: 'content',
+    name: '文档与桌面',
+    note: '桌面、文稿、影片、云盘里的文件，只测量。',
+    readOnly: true,
+    items: [
+      { label: '桌面', path: '~/Desktop' },
+      { label: '文稿', path: '~/Documents' },
+      { label: '影片', path: '~/Movies' },
+      { label: 'iCloud 云盘', path: '~/Library/Mobile Documents' },
+      { label: '第三方云盘', path: '~/Library/CloudStorage' },
+    ],
+  },
+  {
+    id: 'photos',
+    family: 'content',
+    name: '照片',
+    note: '照片图库，只能在「照片」里管理，只测量。',
+    readOnly: true,
+    items: [{ label: '照片图库', path: '~/Pictures' }],
+  },
+  {
+    id: 'chats',
+    family: 'content',
+    name: '聊天记录',
+    note: '微信、QQ、Telegram、Slack 与信息的本地数据。',
+    readOnly: true,
+    items: [
+      { label: '微信', path: '~/Library/Containers/com.tencent.xinWeChat' },
+      { label: 'QQ', path: '~/Library/Containers/com.tencent.qq' },
+      { label: 'Telegram', path: '~/Library/Group Containers/6N38VWS5BX.ru.keepcoder.Telegram' },
+      { label: 'Slack', path: '~/Library/Containers/com.tinyspeck.slackmacgap' },
+      { label: '信息', path: '~/Library/Messages' },
+    ],
+  },
+  {
+    id: 'projects',
+    family: 'content',
+    name: '项目目录',
+    note: '常见的代码目录，只测量。',
+    readOnly: true,
+    items: [
+      { label: 'Projects', path: '~/Projects' },
+      { label: 'Developer', path: '~/Developer' },
+      { label: 'code', path: '~/code' },
+      { label: 'src', path: '~/src' },
+    ],
+  },
+  {
+    id: 'apps',
+    family: 'tools',
+    name: '应用程序',
+    note: '已安装的应用，建议到各自的卸载器里处理。',
+    readOnly: true,
+    items: [{ label: '/Applications', path: '/Applications' }],
   },
   {
     id: 'device-backups',

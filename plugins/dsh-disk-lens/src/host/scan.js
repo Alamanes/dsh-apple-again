@@ -19,7 +19,7 @@ const REGENERABLE = new Set([
   'Proxy Media', 'Media Cache', 'Media Cache Files', 'Peak Files', 'DerivedDataCache', '.godot',
 ])
 
-const DENIED_RE = /(: Operation not permitted|: Permission denied)(\n|$)/g
+const DENIED_RE = /(: Operation not permitted|: Permission denied)/
 
 /** Total and free bytes, matching Finder's capacity reading. */
 export async function diskSpace() {
@@ -125,16 +125,24 @@ export function measurePath(target, { signal, timeoutMs = PATH_TIMEOUT_MS, onLin
         index = buffer.indexOf('\n')
       }
     })
+    let stderrText = ''
     child.stderr.on('data', (chunk) => {
       const text = chunk.toString('utf8')
+      stderrText += text
       if (DENIED_RE.test(text)) denied = true
     })
     child.on('error', () => finish('failed'))
     child.on('close', (code) => {
       if (buffer !== '') consume(buffer.replace(/\n$/, ''))
       if (timedOut) return finish('timeout')
-      if (code !== 0 && totalKb === 0) return finish(denied ? 'denied' : 'failed')
-      finish(denied ? 'denied' : 'ok')
+      const size = rootKb || lastKb
+      if (code !== 0 && size === 0) {
+        if (/No such file or directory/.test(stderrText)) return finish('missing')
+        return finish(denied ? 'denied' : 'failed')
+      }
+      // A few unreadable children inside a large tree do not make the whole
+      // measurement useless: the size is still the real size.
+      finish(size > 0 ? 'ok' : denied ? 'denied' : 'failed')
     })
   })
 }
@@ -177,7 +185,9 @@ export async function scanDisk({ rules, concurrency = 4, signal, onProgress } = 
       results.set(next.item.path, result)
       measured.set(next.item.path, result.bytes)
       if (result.status === 'denied') denied.push(result.display)
-      if (result.status !== 'ok' && result.status !== 'denied') warnings.push(result.display + '：' + result.status)
+      if (result.status !== 'ok' && result.status !== 'denied' && result.status !== 'missing') {
+        warnings.push(result.display + '：' + result.status)
+      }
       for (const file of result.bigFiles) index.bigFiles.push(file)
       for (const dir of result.regenerable) index.regenerable.push(dir)
       if (result.status === 'ok') index.dirs.push({ path: result.display, bytes: result.bytes })
@@ -227,7 +237,7 @@ export async function scanDisk({ rules, concurrency = 4, signal, onProgress } = 
       id: 'unaccounted',
       family: 'system',
       name: '尚未归类',
-      note: '已用空间里还没有被任何一条规则覆盖的部分。',
+      note: '规则表覆盖了已用空间的 ' + Math.round((accounted / Math.max(1, used)) * 100) + '%，其余多半在 ~/Library 的未测子目录里，可以让模型接着查。',
       readOnly: true,
       bytes: unaccounted,
       items: [],

@@ -18,6 +18,8 @@ window.__ModuleLoader__.load({
     const POLL_BUSY_MS = 900
     const POLL_IDLE_MS = 5000
 
+    const STATUS_TEXT = { ok: '', missing: '不存在', denied: '无权限', timeout: '测量超时', failed: '测量失败', cancel: '已取消' }
+
     const FAMILY_COLOR = {
       content: 'var(--dl-content)',
       tools: 'var(--dl-tools)',
@@ -129,7 +131,7 @@ window.__ModuleLoader__.load({
                 className: 'dl-seg' + (active === segment.id ? ' is-active' : ''),
                 style: { flexGrow: Math.max(segment.percent, 0.15), background: FAMILY_COLOR[segment.family] || 'var(--dl-system)' },
                 title: segment.name + ' · ' + rmBytes(segment.bytes) + ' · ' + segment.percent.toFixed(1) + '%',
-                onClick: () => onSelect(active === segment.id ? '' : segment.id),
+                onClick: segment.id === '__rest' ? undefined : () => onSelect(active === segment.id ? '' : segment.id),
               })),
               h('div', { className: 'dl-seg is-free', style: { flexGrow: Math.max(freePct, 0.15) }, title: '可用 ' + rmBytes(free) + ' · ' + freePct.toFixed(1) + '%' })
             )
@@ -140,7 +142,7 @@ window.__ModuleLoader__.load({
                 key: 'legend-' + segment.id,
                 type: 'button',
                 className: 'dl-legend-row' + (active === segment.id ? ' is-active' : ''),
-                onClick: () => onSelect(active === segment.id ? '' : segment.id),
+                onClick: segment.id === '__rest' ? undefined : () => onSelect(active === segment.id ? '' : segment.id),
               },
                 h('i', { className: 'dl-legend-dot', style: { background: FAMILY_COLOR[segment.family] || 'var(--dl-system)' } }),
                 h('span', { className: 'dl-legend-name' }, segment.name),
@@ -184,8 +186,8 @@ window.__ModuleLoader__.load({
                 category.note ? h('div', { className: 'dl-cat-note' }, category.note) : null,
                 active === category.id && category.items.length > 0
                   ? h('div', { className: 'dl-cat-items' }, category.items.slice(0, 10).map((item, index) =>
-                      h('div', { key: category.id + '-item-' + index, className: 'dl-cat-item' + (item.status === 'denied' ? ' is-denied' : '') },
-                        h('span', null, item.label + (item.status === 'denied' ? '（无法读取）' : item.status === 'timeout' ? '（测量超时）' : '')),
+                      h('div', { key: category.id + '-item-' + index, className: 'dl-cat-item' + (item.status !== 'ok' ? ' is-denied' : '') },
+                        h('span', null, item.label + (STATUS_TEXT[item.status] ? '（' + STATUS_TEXT[item.status] + '）' : '')),
                         h('b', null, rmBytes(item.bytes))
                       )))
                   : null
@@ -197,7 +199,7 @@ window.__ModuleLoader__.load({
 
     /* ---------- suggestions ---------- */
 
-    function SuggestionList({ snapshot, selected, onToggle }) {
+    function SuggestionList({ snapshot, selected, onToggle, allowDelete }) {
       const candidates = candidatesOf(snapshot)
       return h('section', { className: 'dl-panel' },
         h('div', { className: 'dl-panel-head' },
@@ -221,7 +223,8 @@ window.__ModuleLoader__.load({
                   h('div', { className: 'dl-sug-label' }, candidate.label,
                     h('span', { className: 'dl-tag is-' + candidate.safety }, candidate.safety === 'safe' ? '安全' : candidate.safety === 'review' ? '先看一眼' : '需谨慎'),
                     h('span', { className: 'dl-tag' }, candidate.method === 'trash' ? '废纸篓' : candidate.method === 'delete' ? '直接删除' : '命令'),
-                    candidate.origin === 'model' ? h('span', { className: 'dl-tag is-model' }, '模型') : null
+                    candidate.origin === 'model' ? h('span', { className: 'dl-tag is-model' }, '模型') : null,
+                    candidate.method === 'delete' && !allowDelete ? h('span', { className: 'dl-tag is-careful' }, '需开启删除') : null
                   ),
                   candidate.why ? h('div', { className: 'dl-sug-why' }, candidate.why) : null,
                   candidate.method === 'command'
@@ -234,6 +237,125 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /* ---------- audit & settings ---------- */
+
+    const AUDIT_KIND = { scan: '扫描', propose: '写入建议', clean: '清理' }
+
+    function auditLine(row) {
+      if (row.kind === 'scan') return '规则 ' + (row.rules || 0) + ' 条 · ' + Math.round((row.durationMs || 0) / 1000) + ' 秒'
+      if (row.kind === 'clean') return '释放约 ' + rmBytes(row.freed || 0) + ' · ' + (row.ids || []).length + ' 条'
+      if (row.kind === 'propose') return '写入 ' + (row.categories || 0) + ' 个分类' + (row.refused ? ' · 拒绝 ' + row.refused + ' 条' : '')
+      return JSON.stringify(row).slice(0, 80)
+    }
+
+    function AuditPanel({ audit }) {
+      return h('section', { className: 'dl-panel' },
+        h('div', { className: 'dl-panel-head' }, h('h3', null, '审计'), h('span', null, audit.length + ' 条记录')),
+        h('div', { className: 'dl-audit' },
+          audit.length === 0
+            ? h('div', { className: 'dl-empty' }, '还没有记录。每次扫描、写入建议、清理都会记在这里。')
+            : audit.map((row, index) => h('div', { key: 'audit-' + index, className: 'dl-audit-row' },
+                h('span', null, shortDate(row.at)),
+                h('span', null, AUDIT_KIND[row.kind] || row.kind || ''),
+                h('span', null, auditLine(row))
+              ))
+        )
+      )
+    }
+
+    function SettingsPanel({ settings, rules, onPatch, busy }) {
+      const disabled = new Set(settings.disabledRules || [])
+      const enabledCount = rules.filter((rule) => !disabled.has(rule.id)).length
+      return h('section', { className: 'dl-panel' },
+        h('div', { className: 'dl-panel-head' },
+          h('h3', null, '设置'),
+          h('span', null, '规则 ' + enabledCount + ' / ' + rules.length)
+        ),
+        h('div', { className: 'dl-settings' },
+          h('div', { className: 'dl-switch' },
+            h('div', null, '允许直接删除', h('small', null, '关闭时 delete 类建议会被拒绝，其余清理都进废纸篓。')),
+            h('button', { 'data-on': settings.allowDelete ? 'true' : 'false', disabled: busy, onClick: () => onPatch({ allowDelete: !settings.allowDelete }) }, h('i'))
+          ),
+          h('div', { className: 'dl-switch' },
+            h('div', null, '并行测量', h('small', null, '同时跑几个 du；机械硬盘用 2，SSD 可以到 6。')),
+            h('div', { className: 'dl-tabs' },
+              [1, 2, 4, 6].map((value) => h('button', {
+                key: 'conc-' + value,
+                className: 'dl-tab',
+                'data-on': (settings.concurrency || 4) === value,
+                disabled: busy,
+                onClick: () => onPatch({ concurrency: value }),
+              }, String(value)))
+            )
+          ),
+          h('div', { className: 'dl-switch is-column' },
+            h('div', null, '规则', h('small', null, '关掉的规则不参与扫描，也不会生成建议。')),
+            h('div', { className: 'dl-chips' },
+              rules.map((rule) => {
+                const on = !disabled.has(rule.id)
+                return h('button', {
+                  key: 'rule-' + rule.id,
+                  className: 'dl-chip-btn',
+                  'data-on': on,
+                  disabled: busy,
+                  onClick: () => {
+                    const next = new Set(disabled)
+                    if (next.has(rule.id)) next.delete(rule.id)
+                    else next.add(rule.id)
+                    onPatch({ disabledRules: [...next] })
+                  },
+                }, rule.name)
+              })
+            )
+          )
+        )
+      )
+    }
+
+    /* ---------- dialogs ---------- */
+
+    function ConfirmDialog({ pending, cleaning, allowDelete, onCancel, onConfirm }) {
+      useEffect(() => {
+        const onKey = (event) => { if (event.key === 'Escape' && !cleaning) onCancel() }
+        window.addEventListener('keydown', onKey)
+        return () => window.removeEventListener('keydown', onKey)
+      }, [cleaning, onCancel])
+      const blockedDelete = pending.hasDelete && !allowDelete
+      return h('div', { className: 'dl-backdrop', onClick: () => { if (!cleaning) onCancel() } },
+        h('div', { className: 'dl-modal', role: 'dialog', 'aria-modal': 'true', onClick: (event) => event.stopPropagation() },
+          h('div', { className: 'dl-modal-head' },
+            h('h3', null, '确认执行 ' + pending.count + ' 条清理'),
+            h('p', null, '将释放约 ' + rmBytes(pending.bytes) + '。下面是会跑的全部命令；非命令类默认进废纸篓，可以恢复。')
+          ),
+          blockedDelete
+            ? h('div', { className: 'dl-warn' }, '其中包含直接删除的条目，设置里没有打开删除开关，这些会被跳过。')
+            : null,
+          h('pre', { className: 'dl-script' }, pending.script),
+          h('div', { className: 'dl-modal-foot' },
+            h('span', null, '执行结果会写进下面的审计。'),
+            h('div', { className: 'dl-actions' },
+              h('button', { className: 'dl-btn is-quiet', disabled: cleaning, onClick: onCancel }, '取消'),
+              h('button', { className: 'dl-btn is-primary', disabled: cleaning, onClick: onConfirm }, cleaning ? '正在清理…' : '确认执行')
+            )
+          )
+        )
+      )
+    }
+
+    function Toast({ result, onClose }) {
+      useEffect(() => {
+        const timer = setTimeout(onClose, 6000)
+        return () => clearTimeout(timer)
+      }, [result, onClose])
+      const done = result.results.filter((row) => row.state === 'done').length
+      const failed = result.results.filter((row) => row.state === 'failed').length
+      return h('div', { className: 'dl-toast', role: 'status' },
+        h('b', null, '清理完成'),
+        h('span', null, '释放约 ' + rmBytes(result.freed) + ' · 成功 ' + done + (failed > 0 ? ' · 失败 ' + failed : '')),
+        h('button', { className: 'dl-toast-close', 'aria-label': '关闭', onClick: onClose }, '×')
+      )
+    }
+
     /* ---------- page ---------- */
 
     function DiskLensPage({ api }) {
@@ -241,11 +363,12 @@ window.__ModuleLoader__.load({
       const [state, setState] = useState(null)
       const [active, setActive] = useState('')
       const [selected, setSelected] = useState(() => new Set())
-      const [plan, setPlan] = useState(null)
-      const [running, setRunning] = useState(false)
+      const [pending, setPending] = useState(null)
+      const [result, setResult] = useState(null)
+      const [busy, setBusy] = useState('idle')
       const [error, setError] = useState('')
-      const [tab, setTab] = useState('audit')
       const mounted = useRef(true)
+      const cleanedUp = useCallback(() => setResult(null), [])
 
       useEffect(() => { ensureStyle(); return () => { mounted.current = false } }, [])
 
@@ -254,7 +377,6 @@ window.__ModuleLoader__.load({
           const next = await client.state()
           if (!mounted.current) return
           setState(next)
-          setError('')
         } catch (problem) {
           if (mounted.current) setError(problem instanceof Error ? problem.message : String(problem))
         }
@@ -262,17 +384,37 @@ window.__ModuleLoader__.load({
 
       useEffect(() => {
         void refresh()
-        const busy = state !== null && state.scanning
-        const timer = setInterval(() => { void refresh() }, busy ? POLL_BUSY_MS : POLL_IDLE_MS)
+        const busyPoll = state !== null && state.scanning
+        const timer = setInterval(() => { void refresh() }, busyPoll ? POLL_BUSY_MS : POLL_IDLE_MS)
         return () => clearInterval(timer)
       }, [refresh, state !== null && state.scanning])
 
       const snapshot = state ? state.snapshot : null
       const scanning = state ? state.scanning : false
       const settings = state ? state.settings : { allowDelete: false, disabledRules: [], concurrency: 4 }
+      const rules = state ? state.rules : []
       const audit = state ? state.audit : []
+      const progress = state ? state.progress : null
       const candidates = candidatesOf(snapshot)
-      const selectedBytes = candidates.filter((candidate) => selected.has(candidate.id)).reduce((sum, candidate) => sum + (candidate.bytes || 0), 0)
+      const candidateKey = candidates.map((candidate) => candidate.id).join('|')
+
+      // A new scan or a finished clean can remove suggestions; drop stale ticks.
+      useEffect(() => {
+        setSelected((previous) => {
+          const alive = new Set(candidateKey === '' ? [] : candidateKey.split('|'))
+          const next = new Set()
+          for (const id of previous) if (alive.has(id)) next.add(id)
+          return next.size === previous.size ? previous : next
+        })
+      }, [candidateKey])
+
+      const selectedList = candidates.filter((candidate) => selected.has(candidate.id))
+      const selectedBytes = selectedList.reduce((sum, candidate) => sum + (candidate.bytes || 0), 0)
+      const selectedHasDelete = selectedList.some((candidate) => candidate.method === 'delete')
+      const hasSnapshot = snapshot !== null && snapshot.disk.total > 0
+      const used = hasSnapshot ? snapshot.disk.used : 0
+      const free = hasSnapshot ? snapshot.disk.free : 0
+      const total = hasSnapshot ? snapshot.disk.total : 0
 
       const toggle = (id) => {
         setSelected((previous) => {
@@ -281,176 +423,174 @@ window.__ModuleLoader__.load({
           else next.add(id)
           return next
         })
-        setPlan(null)
       }
 
       const startScan = async () => {
         setError('')
-        try { await client.scan() ; await refresh() } catch (problem) { setError(String(problem.message || problem)) }
+        setPending(null)
+        setResult(null)
+        try {
+          await client.scan()
+          await refresh()
+        } catch (problem) {
+          setError(problem instanceof Error ? problem.message : String(problem))
+        }
       }
 
       const stopScan = async () => {
-        try { await client.cancel() } catch { /* ignore */ }
+        try { await client.cancel() } catch { /* the next poll shows the truth */ }
+        void refresh()
       }
 
-      const preview = async () => {
+      const requestClean = async () => {
+        if (selected.size === 0) return
+        setBusy('planning')
         setError('')
         try {
-          const result = await client.plan([...selected])
-          setPlan(result)
-        } catch (problem) { setError(String(problem.message || problem)) }
-      }
-
-      const run = async () => {
-        setRunning(true)
-        setError('')
-        try {
-          const result = await client.clean([...selected])
-          setPlan(result.plan ? { plan: result.plan, script: '' } : plan)
-          setSelected(new Set())
-          await refresh()
-          if (result.freed !== undefined) setTab('audit')
+          const preview = await client.plan([...selected])
+          const steps = (preview.plan && preview.plan.steps) || []
+          setPending({
+            ids: [...selected],
+            script: preview.script || '',
+            count: steps.length,
+            bytes: steps.reduce((sum, step) => sum + (step.bytes || 0), 0),
+            hasDelete: steps.some((step) => step.method === 'delete'),
+          })
         } catch (problem) {
-          setError(String(problem.message || problem))
+          setError(problem instanceof Error ? problem.message : String(problem))
         } finally {
-          setRunning(false)
+          setBusy('idle')
+        }
+      }
+
+      const runClean = async () => {
+        if (pending === null) return
+        setBusy('cleaning')
+        setError('')
+        try {
+          const done = await client.clean(pending.ids)
+          setResult({ freed: done.freed || 0, results: done.results || [] })
+          setSelected(new Set())
+          setPending(null)
+          await refresh()
+        } catch (problem) {
+          setError(problem instanceof Error ? problem.message : String(problem))
+        } finally {
+          setBusy('idle')
         }
       }
 
       const patchSettings = async (patch) => {
+        setBusy('settings')
         try {
-          const result = await client.settings(patch)
-          setState((previous) => (previous ? { ...previous, settings: result.settings } : previous))
-        } catch (problem) { setError(String(problem.message || problem)) }
+          const next = await client.settings(patch)
+          setState((previous) => (previous ? { ...previous, settings: next.settings } : previous))
+        } catch (problem) {
+          setError(problem instanceof Error ? problem.message : String(problem))
+        } finally {
+          setBusy('idle')
+        }
       }
 
-      const used = snapshot ? snapshot.disk.used : 0
-      const free = snapshot ? snapshot.disk.free : 0
-      const total = snapshot ? snapshot.disk.total : 0
+      const percent = hasSnapshot ? Math.round((used / total) * 100) : 0
+      const progressPercent = scanning && progress && progress.total > 0 ? Math.round(100 * (progress.done / progress.total)) : 0
 
       return h('div', { className: 'dl-root', 'data-dsh-plugin': 'disk-lens' },
-        h('header', { className: 'dl-head' },
+        h('header', { className: 'dl-head dl-enter' },
           h('div', { className: 'dl-brand' },
             h('div', { className: 'dl-brand-mark' }, h('i'), 'disk lens'),
             h('h1', { className: 'dl-title' }, '盘面'),
-            h('p', { className: 'dl-sub' }, '规则先量一遍，模型再补充判断。所有建议都写明做什么、删哪里，勾选后才执行；默认进废纸篓。')
+            h('p', { className: 'dl-sub' }, '规则先量一遍，模型再补充判断。每条建议都写明做什么、删哪里；勾选后先给你看脚本，确认才执行，默认进废纸篓。')
           ),
           h('div', { className: 'dl-hero' },
             h('div', { className: 'dl-hero-item' },
-              h('span', { className: 'dl-hero-num is-hot' }, rmBytes(used)),
+              h('span', { className: 'dl-hero-num is-hot' }, hasSnapshot ? rmBytes(used) : '—'),
               h('span', { className: 'dl-hero-cap' }, '已用')
             ),
             h('div', { className: 'dl-hero-item' },
-              h('span', { className: 'dl-hero-num' }, rmBytes(free)),
+              h('span', { className: 'dl-hero-num' }, hasSnapshot ? rmBytes(free) : '—'),
               h('span', { className: 'dl-hero-cap' }, '可用')
             ),
             h('div', { className: 'dl-hero-item' },
-              h('span', { className: 'dl-hero-num' }, total > 0 ? Math.round((used / total) * 100) + '%' : '—'),
+              h('span', { className: 'dl-hero-num' }, hasSnapshot ? percent + '%' : '—'),
               h('span', { className: 'dl-hero-cap' }, '占用')
             )
           ),
           h('div', { className: 'dl-actions' },
             scanning
               ? h('button', { className: 'dl-btn is-quiet', onClick: stopScan }, '停止扫描')
-              : h('button', { className: 'dl-btn is-primary', onClick: startScan }, '开始扫描'),
-            h('button', { className: 'dl-btn', onClick: () => { void refresh() } }, '刷新')
+              : h('button', { className: 'dl-btn is-primary', disabled: busy !== 'idle', onClick: startScan }, '开始扫描'),
+            h('button', { className: 'dl-btn', disabled: busy !== 'idle', onClick: () => { void refresh() } }, '刷新')
           )
         ),
 
-        scanning && state.progress ? h('div', { className: 'dl-progress' },
-          h('span', null, '测量 ' + state.progress.done + ' / ' + state.progress.total),
-          h('div', { className: 'dl-progress-bar' }, h('i', { style: { width: Math.round(100 * (state.progress.done / Math.max(1, state.progress.total))) + '%' } })),
-          h('span', null, state.progress.path || '')
-        ) : null,
+        scanning
+          ? h('div', { className: 'dl-scanbar dl-enter' },
+              h('span', { className: 'dl-scanbar-cap' }, '测量中'),
+              h('div', { className: 'dl-progress-bar' }, h('i', { style: { width: progressPercent + '%' } })),
+              h('span', { className: 'dl-scanbar-path' }, (progress && progress.path) || '准备中…'),
+              h('span', { className: 'dl-scanbar-count' }, progress ? progress.done + ' / ' + progress.total : '')
+            )
+          : null,
 
-        error !== '' ? h('div', { className: 'dl-error' }, error) : null,
+        error !== ''
+          ? h('div', { className: 'dl-error-bar dl-enter' },
+              h('span', null, error),
+              h('button', { 'aria-label': '关闭', onClick: () => setError('') }, '×')
+            )
+          : null,
 
-        h(CapacityBar, { snapshot, scanning, progress: state ? state.progress : null, active, onSelect: setActive }),
+        h('div', { className: 'dl-enter' }, h(CapacityBar, { snapshot, scanning, progress, active, onSelect: setActive })),
 
-        h('div', { className: 'dl-grid' },
+        h('div', { className: 'dl-grid dl-enter' },
           h(CategoryList, { snapshot, active, onSelect: setActive }),
-          h('div', { style: { display: 'flex', flexDirection: 'column', gap: '16px' } },
-            h(SuggestionList, { snapshot, selected, onToggle: toggle }),
-            candidates.length > 0 ? h('div', { className: 'dl-plan' },
-              h('div', { className: 'dl-plan-foot' },
-                h('span', null, '已选 ' + selected.size + ' 条，约 ' + rmBytes(selectedBytes)),
-                h('div', { className: 'dl-actions', style: { marginLeft: 'auto' } },
-                  h('button', { className: 'dl-btn is-quiet', disabled: selected.size === 0, onClick: preview }, '预览脚本'),
-                  h('button', {
-                    className: 'dl-btn is-primary',
-                    disabled: selected.size === 0 || running,
-                    onClick: run,
-                  }, running ? '正在清理…' : '执行清理')
-                )
-              ),
-              plan && plan.script ? h('pre', null, plan.script) : null
-            ) : null
-          )
+          h(SuggestionList, { snapshot, selected, onToggle: toggle, allowDelete: settings.allowDelete })
         ),
 
-        h('section', { className: 'dl-panel' },
-          h('div', { className: 'dl-panel-head' },
-            h('div', { className: 'dl-tabs' },
-              h('button', { className: 'dl-tab', 'data-on': tab === 'audit', onClick: () => setTab('audit') }, '审计'),
-              h('button', { className: 'dl-tab', 'data-on': tab === 'settings', onClick: () => setTab('settings') }, '设置'),
-              h('button', { className: 'dl-tab', 'data-on': tab === 'about', onClick: () => setTab('about') }, '说明')
-            ),
-            h('span', null, snapshot ? snapshot.categories.length + ' 类 · ' + candidates.length + ' 条建议' : '')
-          ),
-          tab === 'audit'
-            ? h('div', { className: 'dl-audit', style: { padding: '14px' } },
-                audit.length === 0 ? h('div', { className: 'dl-empty' }, '还没有记录。') :
-                audit.map((row, index) => h('div', { key: 'audit-' + index, className: 'dl-audit-row' },
-                  h('span', null, shortDate(row.at)),
-                  h('span', null, row.kind || ''),
-                  h('span', null, row.kind === 'scan' ? '规则 ' + (row.rules || 0) + ' 条，' + Math.round((row.durationMs || 0) / 1000) + ' 秒'
-                    : row.kind === 'clean' ? '释放约 ' + rmBytes(row.freed || 0) + '，' + (row.ids || []).length + ' 条'
-                    : row.kind === 'propose' ? '写入 ' + (row.categories || 0) + ' 个分类'
-                    : JSON.stringify(row).slice(0, 120))
-                )))
-            : null,
-          tab === 'settings'
-            ? h('div', { className: 'dl-settings' },
-                h('div', { className: 'dl-switch' },
-                  h('div', null, '允许直接删除', h('small', null, '关闭时，delete 类建议会被拒绝，所有非命令清理都进废纸篓。')),
-                  h('button', { 'data-on': settings.allowDelete ? 'true' : 'false', onClick: () => patchSettings({ allowDelete: !settings.allowDelete }) }, h('i'))
-                ),
-                h('div', { className: 'dl-switch' },
-                  h('div', null, '并行测量', h('small', null, '同时跑几个 du；机械硬盘建议 2，SSD 可以到 6。')),
-                  h('div', { className: 'dl-tabs' },
-                    [1, 2, 4, 6].map((value) => h('button', {
-                      key: 'conc-' + value,
-                      className: 'dl-tab',
-                      'data-on': (settings.concurrency || 4) === value,
-                      onClick: () => patchSettings({ concurrency: value }),
-                    }, String(value)))
-                  )
-                ),
-                h('div', { className: 'dl-switch' },
-                  h('div', null, '规则', h('small', null, '按需关掉不想扫的规则；关掉后扫描更快。')),
-                  h('div', { className: 'dl-tabs' },
-                    (state ? state.rules : []).slice(0, 8).map((rule) => h('button', {
-                      key: 'rule-' + rule.id,
-                      className: 'dl-tab',
-                      'data-on': !(settings.disabledRules || []).includes(rule.id),
-                      onClick: () => {
-                        const disabled = new Set(settings.disabledRules || [])
-                        if (disabled.has(rule.id)) disabled.delete(rule.id)
-                        else disabled.add(rule.id)
-                        void patchSettings({ disabledRules: [...disabled] })
-                      },
-                    }, rule.name))
-                  )
-                )
+        candidates.length > 0
+          ? h('div', { className: 'dl-actionbar dl-enter' },
+              h('span', null,
+                '已选 ' + selected.size + ' 条，约 ' + rmBytes(selectedBytes),
+                selectedHasDelete && !settings.allowDelete ? h('em', null, ' · 其中包含直接删除，需在设置里开启') : null
+              ),
+              h('div', { className: 'dl-actions' },
+                h('button', {
+                  className: 'dl-btn is-quiet',
+                  disabled: selected.size === 0 || busy !== 'idle' || scanning,
+                  onClick: () => setSelected(new Set(candidates.map((candidate) => candidate.id))),
+                }, '全选'),
+                h('button', {
+                  className: 'dl-btn is-quiet',
+                  disabled: selected.size === 0 || busy !== 'idle' || scanning,
+                  onClick: () => setSelected(new Set()),
+                }, '清空'),
+                h('button', {
+                  className: 'dl-btn is-primary',
+                  disabled: selected.size === 0 || busy !== 'idle' || scanning,
+                  onClick: requestClean,
+                }, busy === 'planning' ? '准备脚本…' : '执行清理')
               )
-            : null,
-          tab === 'about'
-            ? h('div', { style: { padding: '16px 18px', color: 'var(--dl-dim)', fontSize: '12.5px', lineHeight: '1.7' } },
-                h('p', null, '这个面板只做三件事：量、建议、执行。量是 du 加规则表；建议来自规则与被你允许的模型；执行前会给你完整脚本，默认全部进废纸篓。'),
-                h('p', null, '想加一条自己的规则，改插件目录下的 ', h('code', null, 'src/host/rules.js'), '，刷新即生效。模型分析在对话里说「分析一下磁盘」即可，它会调用 disk_scan / disk_propose。')
-              )
-            : null
-        )
+            )
+          : null,
+
+        h('div', { className: 'dl-bottom dl-enter' },
+          h(AuditPanel, { audit }),
+          h(SettingsPanel, { settings, rules, onPatch: patchSettings, busy: busy === 'settings' })
+        ),
+
+        h('footer', { className: 'dl-foot dl-enter' }, '规则表在插件目录的 src/host/rules.js，改完刷新即生效。在对话里说「分析一下磁盘」，模型会调用 disk_scan / disk_propose。'),
+
+        pending !== null
+          ? h(ConfirmDialog, {
+              pending,
+              cleaning: busy === 'cleaning',
+              allowDelete: settings.allowDelete,
+              onCancel: () => { if (busy !== 'cleaning') setPending(null) },
+              onConfirm: runClean,
+            })
+          : null,
+
+        result !== null ? h(Toast, { result, onClose: cleanedUp }) : null
       )
     }
 

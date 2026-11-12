@@ -90,32 +90,49 @@ export function apply(ctx, config) {
       this.progress = { done: 0, total: rules.reduce((sum, rule) => sum + rule.items.length, 0), path: '' }
       const controller = new AbortController()
       this.controller = controller
+      this.canceled = false
+      // Wire the caller's signal once, before any work starts.
+      if (signal !== undefined) {
+        if (signal.aborted) controller.abort()
+        else signal.addEventListener('abort', () => controller.abort(), { once: true })
+      }
       const forward = (event) => {
-        if (signal !== undefined) {
-          if (signal.aborted) controller.abort()
-          else signal.addEventListener('abort', () => controller.abort(), { once: true })
-        }
         this.progress = { done: event.done, total: event.total, path: event.path, bytes: event.bytes, status: event.status }
       }
       try {
         const snapshot = await scanDisk({ rules, concurrency: settings.concurrency ?? 4, signal: controller.signal, onProgress: forward })
+        if (controller.signal.aborted) {
+          // A stopped scan keeps the previous snapshot: half a measurement is
+          // worse than a stale one.
+          this.canceled = true
+          return this.snapshot
+        }
         this.snapshot = snapshot
         await store.setSnapshot(snapshot)
         await store.audit({ kind: 'scan', rules: rules.length, bytes: snapshot.accounted, durationMs: snapshot.durationMs })
         return snapshot
       } catch (error) {
+        if (controller.signal.aborted) {
+          this.canceled = true
+          return this.snapshot
+        }
         this.error = error instanceof Error ? error.message : String(error)
         warn('scan failed: ' + this.error)
         throw error
       } finally {
         this.scanning = false
         this.controller = null
+        this.progress = { done: 0, total: 0, path: '' }
       }
     },
 
     cancel() {
-      this.controller?.abort()
-      return { cancelled: this.controller !== null }
+      const running = this.controller !== null
+      if (running) {
+        this.canceled = true
+        this.controller.abort()
+      }
+      return { cancelled: running }
     },
 
     propose(args) {
@@ -265,6 +282,7 @@ export function apply(ctx, config) {
         return {
           snapshot: engine.snapshot,
           scanning: engine.scanning,
+          canceled: engine.canceled === true,
           progress: engine.progress,
           error: engine.error,
           settings: await store.getSettings(),
