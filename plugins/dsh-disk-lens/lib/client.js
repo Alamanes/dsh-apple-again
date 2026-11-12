@@ -40,7 +40,7 @@ window.__ModuleLoader__.load({
           node.textContent = text
           document.head.appendChild(node)
         })
-        .catch(() => {})
+        .catch(() => { styleJob = null })
     }
 
     function rmBytes(bytes) {
@@ -52,8 +52,9 @@ window.__ModuleLoader__.load({
 
     function shortDate(iso) {
       if (!iso) return ''
-      const text = String(iso)
-      return text.slice(0, 10) + ' ' + text.slice(11, 16)
+      const date = new Date(String(iso))
+      if (Number.isNaN(date.getTime())) return String(iso).slice(0, 16)
+      return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
     }
 
     function candidatesOf(snapshot) {
@@ -89,6 +90,8 @@ window.__ModuleLoader__.load({
       plan(ids) { return this.post('/plan', { ids }) }
       clean(ids) { return this.post('/clean', { ids }) }
       settings(patch) { return this.post('/settings', patch) }
+      chat() { return this.get('/chat/state') }
+      chatSend(text) { return this.post('/chat/send', { text }) }
 
     }
 
@@ -219,6 +222,8 @@ window.__ModuleLoader__.load({
                   'data-on': on ? 'true' : 'false',
                   'aria-pressed': on,
                   'aria-label': (on ? '取消勾选 ' : '勾选 ') + candidate.label,
+                  disabled: candidate.method === 'delete' && !allowDelete,
+                  title: candidate.method === 'delete' && !allowDelete ? '先在设置里打开「允许直接删除」' : undefined,
                   onClick: () => onToggle(candidate.id),
                 }, on ? '✓' : ''),
                 h('div', null,
@@ -257,7 +262,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'dl-audit' },
           audit.length === 0
             ? h('div', { className: 'dl-empty' }, '还没有记录。每次扫描、写入建议、清理都会记在这里。')
-            : audit.map((row, index) => h('div', { key: 'audit-' + index, className: 'dl-audit-row' },
+            : audit.map((row) => h('div', { key: 'audit-' + (row.at || '') + '-' + (row.kind || ''), className: 'dl-audit-row' },
                 h('span', null, shortDate(row.at)),
                 h('span', null, AUDIT_KIND[row.kind] || row.kind || ''),
                 h('span', null, auditLine(row))
@@ -277,7 +282,14 @@ window.__ModuleLoader__.load({
         h('div', { className: 'dl-settings' },
           h('div', { className: 'dl-switch' },
             h('div', null, '允许直接删除', h('small', null, '关闭时 delete 类建议会被拒绝，其余清理都进废纸篓。')),
-            h('button', { 'data-on': settings.allowDelete ? 'true' : 'false', disabled: busy, onClick: () => onPatch({ allowDelete: !settings.allowDelete }) }, h('i'))
+            h('button', {
+              'data-on': settings.allowDelete ? 'true' : 'false',
+              role: 'switch',
+              'aria-checked': settings.allowDelete ? 'true' : 'false',
+              'aria-label': '允许直接删除',
+              disabled: busy,
+              onClick: () => onPatch({ allowDelete: !settings.allowDelete }),
+            }, h('i'))
           ),
           h('div', { className: 'dl-switch' },
             h('div', null, '并行测量', h('small', null, '同时跑几个 du；机械硬盘用 2，SSD 可以到 6。')),
@@ -318,7 +330,9 @@ window.__ModuleLoader__.load({
     /* ---------- dialogs ---------- */
 
     function ConfirmDialog({ pending, cleaning, allowDelete, onCancel, onConfirm }) {
+      const cancelRef = useRef(null)
       useEffect(() => {
+        cancelRef.current?.focus?.()
         const onKey = (event) => { if (event.key === 'Escape' && !cleaning) onCancel() }
         window.addEventListener('keydown', onKey)
         return () => window.removeEventListener('keydown', onKey)
@@ -331,13 +345,13 @@ window.__ModuleLoader__.load({
             h('p', null, '将释放约 ' + rmBytes(pending.bytes) + '。下面是会跑的全部命令；非命令类默认进废纸篓，可以恢复。')
           ),
           blockedDelete
-            ? h('div', { className: 'dl-warn' }, '其中包含直接删除的条目，设置里没有打开删除开关，这些会被跳过。')
+            ? h('div', { className: 'dl-warn' }, '其中包含直接删除的条目，设置里没有打开删除开关，这一批不会执行。')
             : null,
           h('pre', { className: 'dl-script' }, pending.script),
           h('div', { className: 'dl-modal-foot' },
             h('span', null, '执行结果会写进下面的审计。'),
             h('div', { className: 'dl-actions' },
-              h('button', { className: 'dl-btn is-quiet', disabled: cleaning, onClick: onCancel }, '取消'),
+              h('button', { ref: cancelRef, className: 'dl-btn is-quiet', disabled: cleaning, onClick: onCancel }, '取消'),
               h('button', { className: 'dl-btn is-primary', disabled: cleaning, onClick: onConfirm }, cleaning ? '正在清理…' : '确认执行')
             )
           )
@@ -362,7 +376,9 @@ window.__ModuleLoader__.load({
     /* ---------- page ---------- */
 
     function Drawer({ title, onClose, children }) {
+      const closeRef = useRef(null)
       useEffect(() => {
+        closeRef.current?.focus?.()
         const onKey = (event) => { if (event.key === 'Escape') onClose() }
         window.addEventListener('keydown', onKey)
         return () => window.removeEventListener('keydown', onKey)
@@ -371,7 +387,7 @@ window.__ModuleLoader__.load({
         h('aside', { className: 'dl-drawer', role: 'dialog', 'aria-modal': 'true', onClick: (event) => event.stopPropagation() },
           h('div', { className: 'dl-drawer-head' },
             h('h3', null, title),
-            h('button', { className: 'dl-drawer-close', 'aria-label': '关闭', onClick: onClose }, '×')
+            h('button', { ref: closeRef, className: 'dl-drawer-close', 'aria-label': '关闭', onClick: onClose }, '×')
           ),
           h('div', { className: 'dl-drawer-body' }, children)
         )
@@ -380,20 +396,27 @@ window.__ModuleLoader__.load({
 
     function ChatPanel({ chat, input, onInput, onSend, sending, embedded }) {
       const scroller = useRef(null)
+      const stick = useRef(true)
       const messages = chat ? chat.messages : []
-      const running = sending || (chat ? chat.running : false)
-      const lastBlocks = messages.length > 0 ? (messages[messages.length - 1].blocks || []).length : 0
-      const lastText = messages.length > 0 ? (messages[messages.length - 1].text || '').length : 0
+      // The mirrored session is often mid-turn; that must not lock the composer.
+      const running = sending
       useEffect(() => {
         const node = scroller.current
-        if (node !== null) node.scrollTop = node.scrollHeight
-      }, [messages.length, running, lastBlocks, lastText])
+        if (node !== null && stick.current) node.scrollTop = node.scrollHeight
+      }, [chat, sending])
       return h('section', { className: 'dl-panel dl-chat' + (embedded ? ' is-embedded' : '') },
         h('div', { className: 'dl-panel-head' },
           h('h3', null, '对话'),
-          h('span', null, running ? '运行中' : '当前会话')
+          h('span', null, sending ? '发送中' : (chat && chat.running ? '会话运行中' : '当前会话'))
         ),
-        h('div', { className: 'dl-chat-log', ref: scroller },
+        h('div', {
+          className: 'dl-chat-log',
+          ref: scroller,
+          onScroll: (event) => {
+            const node = event.currentTarget
+            stick.current = node.scrollHeight - node.scrollTop - node.clientHeight < 40
+          },
+        },
           messages.length === 0
             ? h('div', { className: 'dl-empty' }, '在这里和当前会话对话。问磁盘上的事，模型会调用扫描与建议工具，结果直接写在面板里。')
             : messages.map((message) => h('div', { key: message.id, className: 'dl-msg is-' + message.role },
@@ -416,14 +439,14 @@ window.__ModuleLoader__.load({
             placeholder: '问磁盘上的事，或让它分析…',
             onChange: (event) => onInput(event.target.value),
             onKeyDown: (event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
+              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault()
                 onSend()
               }
             },
           }),
           h('div', { className: 'dl-chat-actions' },
-            h('button', { className: 'dl-btn is-primary', disabled: input.trim() === '' || running, onClick: onSend }, running ? '运行中…' : '发送')
+            h('button', { className: 'dl-btn is-primary', disabled: input.trim() === '' || sending, onClick: onSend }, sending ? '发送中…' : '发送')
           )
         )
       )
@@ -447,7 +470,11 @@ window.__ModuleLoader__.load({
       const chatSeq = useRef(0)
       const closeResult = useCallback(() => setResult(null), [])
 
-      useEffect(() => { ensureStyle(); return () => { mounted.current = false } }, [])
+      useEffect(() => {
+        mounted.current = true
+        ensureStyle()
+        return () => { mounted.current = false }
+      }, [])
 
       const refresh = useCallback(async () => {
         const token = ++stateSeq.current
@@ -455,6 +482,7 @@ window.__ModuleLoader__.load({
           const next = await client.state()
           if (!mounted.current || token !== stateSeq.current) return
           setState(next)
+          if (next.error && !next.scanning) setError(String(next.error).slice(0, 200))
         } catch (problem) {
           if (mounted.current && token === stateSeq.current) setError(problem instanceof Error ? problem.message : String(problem))
         }
@@ -536,13 +564,19 @@ window.__ModuleLoader__.load({
       }
 
       const startScan = async () => {
-        setError(''); setPending(null); setResult(null)
+        setError('')
+        setResult(null)
+        if (pending === null) setPending(null)
         try { await client.scan(); await refresh() } catch (problem) { setError(problem instanceof Error ? problem.message : String(problem)) }
       }
       const stopScan = async () => { try { await client.cancel() } catch { /* next poll shows */ } void refresh() }
 
       const requestClean = async () => {
         if (selected.size === 0) return
+        if (selectedHasDelete && !settings.allowDelete) {
+          setError('选中的建议里有「直接删除」，请先在设置里打开「允许直接删除」')
+          return
+        }
         setBusy('planning'); setError('')
         try {
           const preview = await client.plan([...selected])
@@ -560,6 +594,11 @@ window.__ModuleLoader__.load({
 
       const runClean = async () => {
         if (pending === null) return
+        if (!pending.ids.every((id) => selected.has(id))) {
+          setPending(null)
+          setError('选择已变化，请重新生成脚本')
+          return
+        }
         setBusy('cleaning'); setError('')
         try {
           const done = await client.clean(pending.ids)
@@ -635,8 +674,10 @@ window.__ModuleLoader__.load({
           : null,
         drawer === 'settings'
           ? h(Drawer, { title: '设置', onClose: () => setDrawer('') },
-              h(SettingsPanel, { settings, rules, onPatch: patchSettings, busy: busy === 'settings' }),
-              h('p', { className: 'dl-drawer-note' }, '模型与思考强度在主对话的模型菜单里选；这里的对话就是当前会话。')
+              h('div', null,
+                h(SettingsPanel, { settings, rules, onPatch: patchSettings, busy: busy === 'settings' }),
+                h('p', { className: 'dl-drawer-note' }, '模型与思考强度在主对话的模型菜单里选；这里的对话就是当前会话。')
+              )
             )
           : null,
         drawer === 'cats'

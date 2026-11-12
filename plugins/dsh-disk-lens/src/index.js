@@ -64,6 +64,7 @@ export function apply(ctx, config) {
   const engine = {
     snapshot: null,
     scanning: false,
+    cleaning: false,
     startedAt: 0,
     progress: { done: 0, total: 0, path: '' },
     error: '',
@@ -164,6 +165,7 @@ export function apply(ctx, config) {
     },
 
     async clean(ids, { by = 'user' } = {}) {
+      if (this.cleaning) throw new Error('已经有一次清理在跑')
       await this.load()
       if (this.snapshot === null) throw new Error('没有可清理的建议')
       const all = candidatesOf(this.snapshot)
@@ -174,11 +176,29 @@ export function apply(ctx, config) {
       const plan = buildPlan(selected, settings)
       const steps = []
       const controller = new AbortController()
-      const result = await executePlan(plan, {
-        signal: controller.signal,
-        settings,
-        onProgress: (event) => steps.push(event),
-      })
+      this.cleaning = true
+      let result
+      try {
+        result = await executePlan(plan, {
+          signal: controller.signal,
+          settings,
+          onProgress: (event) => steps.push(event),
+        })
+      } finally {
+        this.cleaning = false
+      }
+      // A cleaned suggestion must leave the list, or the user will run it twice.
+      const done = new Set(result.results.filter((row) => row.state === 'done').map((row) => row.stepId))
+      if (done.size > 0) {
+        const next = structuredClone(this.snapshot)
+        next.categories = next.categories.map((category) => ({
+          ...category,
+          cleanup: (category.cleanup ?? []).filter((candidate) => !done.has(candidate.id)),
+        }))
+        next.headline = next.headline
+        this.snapshot = next
+        await store.setSnapshot(next)
+      }
       await store.setPlan({ ...plan, script: renderScript(plan) })
       await store.audit({ kind: 'clean', by, ids: [...wanted], freed: result.freed, results: result.results })
       return { ...result, plan, steps }
