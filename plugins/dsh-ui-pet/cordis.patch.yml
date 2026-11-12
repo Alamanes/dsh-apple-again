@@ -1,0 +1,4 @@
+# dsh-ui-pet bundle patch: the bundle's own single row.
+- insert:
+    - id: dshui-pet
+      name: dsh-ui-pet

@@ -1,0 +1,25 @@
+{
+  "meta": {
+    "title": "虚拟宠物",
+    "description": "把 Codex 格式的宠物包养进 DSH：优先读取 ~/.dsh/pets，读不到再退回 ~/.codex/pets。"
+  },
+  "entry": {
+    "label": "虚拟宠物",
+    "show": "显示虚拟宠物",
+    "hide": "收起虚拟宠物",
+    "shortcut": "⌥Space"
+  },
+  "setting": {
+    "title": "虚拟宠物",
+    "hint": "左下角的宠物开关；快捷键 ⌥Space。",
+    "source.dsh": "正在读取 ~/.dsh/pets",
+    "source.codex": "~/.dsh/pets 没有可用宠物，已退回 ~/.codex/pets",
+    "empty": "没有找到宠物包：把含 pet.json 和雪碧图的文件夹放进 ~/.dsh/pets。",
+    "refresh": "刷新",
+    "prev": "上一只",
+    "next": "下一只"
+  },
+  "empty": "没有找到宠物包",
+  "hint.dsh": "把宠物包放进 ~/.dsh/pets",
+  "hint.codex": "把宠物包放进 ~/.codex/pets"
+}

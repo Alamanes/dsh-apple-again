@@ -1,0 +1,905 @@
+/**
+ * dsh-ui-copy component — pet.
+ *
+ * Owns two surfaces and one shared store:
+ *
+ *   account menu           one row inside the left-bottom account menu
+ *   shell.overlay          the pet itself, on the frame-wide floating layer
+ *   settings.general.item  one preference row inside the General section
+ *
+ * A pack is the Codex format: pet.json plus an 8-column spritesheet. The host
+ * half scans ~/.dsh/pets first and falls back to ~/.codex/pets, then hands the
+ * catalog over as window.DSHUI_PET.catalog, which arrives here as rt.config.
+ *
+ * Frames are read from the sheet once: the protocol fixes the column count and
+ * names nine rows, but packs leave trailing cells empty, so the alpha channel
+ * decides how many frames a row really has. Everything after that is a
+ * requestAnimationFrame loop drawing one cell onto a canvas.
+ */
+function dshuiComponent_pet(rt) {
+  const React = rt.require('react')
+  if (React === null || typeof React.useState !== 'function') {
+    rt.warn('react is not in this boot graph; pet skipped')
+    return
+  }
+  const h = React.createElement
+
+  /** Locale namespace for this component's copy; also the slot registration's locale. */
+  const NS = 'dsh-pet'
+
+  /** Host route that answers the live catalog; the sheets sit beside it. */
+  const LIST_ROUTE = '/dsh-ui-copy/pet/list'
+
+  /** Where visibility, the chosen pack and the scale are remembered. */
+  const PREF_KEY = 'dsh-pet.preferences'
+
+  /** How long one sprite frame stays up. */
+  const FRAME_MS = 120
+
+  /** On-screen height of the sprite at zoom 1, in CSS pixels. */
+  const BASE_HEIGHT = 205
+
+  /** Codex atlas rows, in the order the protocol names them. */
+  const ROW_OF = {
+    idle: 0,
+    'running-right': 1,
+    'running-left': 2,
+    waving: 3,
+    jumping: 4,
+    failed: 5,
+    waiting: 6,
+    running: 7,
+    review: 8,
+    'look-right': 9,
+    'look-left': 10,
+  }
+
+  const zh = {
+    'entry.label': '虚拟宠物',
+    'entry.show': '显示虚拟宠物',
+    'entry.hide': '收起虚拟宠物',
+    'entry.shortcut': '⌥Space',
+    'setting.title': '虚拟宠物',
+    'setting.hint.dsh': '正在读取 ~/.dsh/pets',
+    'setting.hint.codex': '~/.dsh/pets 没有可用宠物，已退回 ~/.codex/pets',
+    'setting.hint.empty': '没有找到宠物包：把含 pet.json 和雪碧图的文件夹放进 ~/.dsh/pets。',
+    'setting.refresh': '刷新',
+    'setting.prev': '上一只',
+    'setting.next': '下一只',
+    'setting.zoom': '大小',
+  }
+  const en = {
+    'entry.label': 'Virtual pet',
+    'entry.show': 'Show virtual pet',
+    'entry.hide': 'Hide virtual pet',
+    'entry.shortcut': '⌥Space',
+    'setting.title': 'Virtual pet',
+    'setting.hint.dsh': 'Reading ~/.dsh/pets',
+    'setting.hint.codex': '~/.dsh/pets has no usable pet, so ~/.codex/pets is used',
+    'setting.hint.empty': 'No pet pack found: drop a folder with pet.json and a spritesheet into ~/.dsh/pets.',
+    'setting.refresh': 'Refresh',
+    'setting.prev': 'Previous pet',
+    'setting.next': 'Next pet',
+    'setting.zoom': 'Size',
+  }
+
+  const STYLESHEET = `
+.dsh-pet-menu-item { display: flex; align-items: center; gap: 8px; width: 100%; }
+.dsh-pet-menu-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; color: inherit; }
+.dsh-pet-menu-item { color: var(--dsw-alias-label-primary, var(--dshui-text-secondary, #5c5c5c)); font-weight: 400; }
+.dsh-pet-menu-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: inherit; font-size: inherit; font-weight: inherit; }
+.dsh-pet-menu-kbd { flex: none; font-size: 11px; color: var(--dshui-text-tertiary, #999); font-variant-numeric: tabular-nums; }
+.dsh-pet-layer { position: fixed; z-index: 30; user-select: none; touch-action: none; cursor: grab; filter: drop-shadow(0 6px 16px rgba(0, 0, 0, .18)); }
+.dsh-pet-layer[data-dragging='true'] { cursor: grabbing; }
+.dsh-pet-canvas { display: block; image-rendering: pixelated; pointer-events: none; }
+.dsh-pet-fallback { display: block; border-radius: var(--dshui-radius-md, 12px); background: var(--dshui-surface-hover, rgba(0, 0, 0, .06)); }
+.dsh-pet-setting { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; }
+.dsh-pet-setting-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.dsh-pet-setting-title { font-size: 13px; color: var(--dshui-text-primary, #1a1a1a); }
+.dsh-pet-setting-hint { font-size: 11px; color: var(--dshui-text-tertiary, #999); }
+.dsh-pet-setting-debug { font-size: 10px; color: var(--dshui-text-dimmed, #aaa); font-variant-numeric: tabular-nums; }
+.dsh-pet-setting-actions { display: flex; align-items: center; gap: 10px; flex: none; }
+.dsh-pet-picker { display: inline-flex; align-items: center; gap: 2px; }
+.dsh-pet-cycle { width: 20px; height: 20px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--dshui-text-secondary, #6b6b6b); font: inherit; font-size: 14px; line-height: 1; cursor: pointer; }
+.dsh-pet-cycle:hover { background: var(--dshui-surface-hover, rgba(0, 0, 0, .06)); color: var(--dshui-text-primary, #1a1a1a); }
+.dsh-pet-zoom { width: 72px; accent-color: var(--dshui-brand, #4d6bfe); }
+.dsh-pet-name { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--dshui-text-secondary, #6b6b6b); }
+.dsh-pet-setting-refresh { padding: 4px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--dshui-text-link, #4d6bfe); font: inherit; font-size: 12px; cursor: pointer; }
+.dsh-pet-setting-refresh:hover { background: var(--dshui-surface-hover, rgba(0, 0, 0, .06)); }
+.dsh-pet-switch { position: relative; width: 32px; height: 18px; margin: 0; border: 0; border-radius: 9px; background: var(--dshui-surface-selected, #d5d5d5); appearance: none; cursor: pointer; transition: background .15s ease; }
+.dsh-pet-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform .15s ease; }
+.dsh-pet-switch:checked { background: var(--dshui-brand, #4d6bfe); }
+.dsh-pet-switch:checked::after { transform: translateX(14px); }
+.dsh-pet-switch:focus-visible { outline: 2px solid var(--dshui-border-focus, #4d6bfe); outline-offset: 2px; }
+`
+
+  const clamp = function (value, min, max) {
+    return Math.max(min, Math.min(max, value))
+  }
+
+  function readPrefs() {
+    try {
+      const raw = window.localStorage.getItem(PREF_KEY)
+      const value = raw === null ? null : JSON.parse(raw)
+      return value !== null && typeof value === 'object' ? value : {}
+    } catch {
+      return {}
+    }
+  }
+
+  function writePrefs(patch) {
+    try {
+      window.localStorage.setItem(PREF_KEY, JSON.stringify(Object.assign(readPrefs(), patch)))
+    } catch {
+      // Storage can be unavailable; the pet still works for this page.
+    }
+  }
+
+  const listeners = new Set()
+  const store = {
+    state: { visible: false, pets: [], source: null, activeId: null, scale: 1, mood: 'idle', host: null },
+    set(patch) {
+      store.state = Object.assign({}, store.state, patch)
+      for (const listener of listeners) {
+        try {
+          listener()
+        } catch (error) {
+          rt.error(error)
+        }
+      }
+    },
+    subscribe(listener) {
+      listeners.add(listener)
+      return function () {
+        listeners.delete(listener)
+      }
+    },
+  }
+
+  function useStore(target) {
+    const [, force] = React.useState(0)
+    React.useEffect(function () {
+      return target.subscribe(function () {
+        force(function (count) { return count + 1 })
+      })
+    }, [target])
+    return target.state
+  }
+
+  /** Take one catalog from the host and reconcile the remembered choice. */
+  function adopt(catalog) {
+    if (catalog === null || typeof catalog !== 'object' || !Array.isArray(catalog.pets)) return
+    const pets = catalog.pets.filter(function (pet) {
+      return pet !== null && typeof pet === 'object' && typeof pet.id === 'string' && pet.id !== ''
+    })
+    store.set({ pets, source: typeof catalog.source === 'string' ? catalog.source : null })
+    const remembered = readPrefs()
+    const wanted = typeof remembered.activeId === 'string' ? remembered.activeId : null
+    const found = pets.find(function (pet) { return pet.id === wanted })
+    store.set({ activeId: found !== undefined ? found.id : pets.length > 0 ? pets[0].id : null })
+  }
+
+  const embedded = rt.config !== null && typeof rt.config === 'object' ? rt.config : {}
+  adopt(embedded.catalog !== null && typeof embedded.catalog === 'object' ? embedded.catalog : null)
+  const prefs = readPrefs()
+  // A first run shows the pet without asking; only a plain "off" is remembered
+  // as a refusal, so an upgrade never pops it back up after the user hid it.
+  const wanted = prefs.visible === undefined ? true : prefs.visible === true
+  store.set({
+    scale: typeof prefs.scale === 'number' ? clamp(prefs.scale, 0.5, 2) : 1,
+    visible: wanted && store.state.pets.length > 0,
+  })
+
+  function toggle() {
+    if (store.state.visible) {
+      store.set({ visible: false })
+      writePrefs({ visible: false })
+      return
+    }
+    if (store.state.pets.length === 0) {
+      refresh()
+      return
+    }
+    store.set({ visible: true })
+    writePrefs({ visible: true })
+  }
+
+  /** Resize the sprite; the value is remembered like the rest. */
+  function setScale(value) {
+    const scale = clamp(Number(value), 0.5, 2)
+    store.set({ scale: scale })
+    writePrefs({ scale: scale })
+  }
+
+  /** Step to another pack; the choice is remembered like the rest. */
+  function cycle(delta) {
+    const pets = store.state.pets
+    if (pets.length < 2) return
+    const index = pets.findIndex(function (pet) { return pet.id === store.state.activeId })
+    const next = pets[(index + delta + pets.length) % pets.length]
+    store.set({ activeId: next.id })
+    writePrefs({ activeId: next.id })
+  }
+
+  function refresh() {
+    fetch(LIST_ROUTE, { credentials: 'same-origin' })
+      .then(function (response) { return response.ok ? response.json() : null })
+      .then(function (catalog) {
+        if (catalog === null) return
+        adopt(catalog)
+        if (store.state.pets.length > 0) {
+          store.set({ visible: true })
+          writePrefs({ visible: true })
+        }
+      })
+      .catch(function (error) {
+        rt.warn('pet catalog could not be read: ' + String((error && error.message) || error))
+      })
+  }
+
+  /**
+   * The host marks a live turn with `data-chat-running` on the message row, and
+   * a pending approval or question with the ask panel's own key attributes.
+   * Those two signals are what the turn status line and the ask sheet already
+   * ride on, so they stay right while class names keep churning.
+   */
+  const RUNNING_MARK = '[data-chat-running]'
+  const WAITING_MARK = '[data-question-key], [data-approval-key], [data-plan-review-key]'
+  const FAILED_MARK = '[data-chat-node="turn-error"], [data-turn-error]'
+
+  /** How long a finished turn keeps the review row before settling to idle. */
+  const REVIEW_MS = 6000
+
+  /** When the current review window ends; 0 while no turn just finished. */
+  let reviewUntil = 0
+
+  /** Whether the host reports a running agent on its status stream. */
+  let hostRunning = false
+
+  /** When the last status frame arrived; 0 before the stream says anything. */
+  let hostStateAt = 0
+
+  /** The pet's mood, derived from the live turn state. */
+  function syncMood() {
+    const now = performance.now()
+    // Trust the host only while its stream is alive; a dropped stream falls back
+    // to the DOM markers instead of freezing the last frame forever.
+    const hostFresh = hostStateAt !== 0 && now - hostStateAt < 4000
+    const live = hostFresh && hostRunning
+      ? 'running'
+      : document.querySelector(RUNNING_MARK) !== null
+        ? 'running'
+        : document.querySelector(WAITING_MARK) !== null
+        ? 'waiting'
+        : document.querySelector(FAILED_MARK) !== null
+          ? 'failed'
+          : 'idle'
+
+    if (live === 'running') reviewUntil = 0
+    else if (live === 'idle' && store.state.mood === 'running') reviewUntil = now + REVIEW_MS
+
+    const next = live === 'idle' && now < reviewUntil ? 'review' : live
+    if (store.state.mood === next) return
+    store.set({ mood: next })
+
+    if (next === 'review') {
+      window.setTimeout(function () {
+        if (store.state.mood === 'review') store.set({ mood: 'idle' })
+      }, REVIEW_MS)
+    }
+  }
+
+  /** Whether one cell carries any opaque pixel, sampled coarsely. */
+  function cellHasInk(data, width, height, left, top, cellW, cellH) {
+    const stepX = Math.max(1, Math.floor(cellW / 48))
+    const stepY = Math.max(1, Math.floor(cellH / 48))
+    const right = Math.min(left + cellW, width)
+    const bottom = Math.min(top + cellH, height)
+    for (let y = top; y < bottom; y += stepY) {
+      const rowOffset = y * width
+      for (let x = left; x < right; x += stepX) {
+        if (data[(rowOffset + x) * 4 + 3] > 8) return true
+      }
+    }
+    return false
+  }
+
+  /**
+   * Decode one atlas far enough to learn its cell size and frame counts.
+   *
+   * @param source - the route serving the sheet.
+   * @param columns - cells per row, fixed by the protocol.
+   * @param rows - rows in this pack's version.
+   * @returns image, cell geometry, and the frame count of every row.
+   */
+  function inspectAtlas(source, columns, rows) {
+    return new Promise(function (resolve, reject) {
+      const image = new Image()
+      image.decoding = 'async'
+      image.onload = function () {
+        try {
+          const width = image.naturalWidth
+          const height = image.naturalHeight
+          if (width === 0 || height === 0) {
+            reject(new Error('empty-atlas'))
+            return
+          }
+          const cellW = Math.max(1, Math.floor(width / columns))
+          const cellH = Math.max(1, Math.floor(height / rows))
+          const canvas = document.createElement('canvas')
+          canvas.width = width
+          canvas.height = height
+          const context = canvas.getContext('2d', { willReadFrequently: true })
+          if (context === null) {
+            reject(new Error('no-2d-context'))
+            return
+          }
+          context.drawImage(image, 0, 0)
+          const data = context.getImageData(0, 0, width, height).data
+          const frames = []
+          for (let row = 0; row < rows; row += 1) {
+            let last = -1
+            for (let column = 0; column < columns; column += 1) {
+              if (cellHasInk(data, width, height, column * cellW, row * cellH, cellW, cellH)) last = column
+            }
+            frames.push(last + 1)
+          }
+          resolve({ image: image, cellW: cellW, cellH: cellH, frames: frames })
+        } catch (error) {
+          reject(error)
+        }
+      }
+      image.onerror = function () { reject(new Error('unreadable-atlas')) }
+      image.src = source
+    })
+  }
+
+  /** The pet itself: one canvas, one animation loop. */
+  function PetSprite(props) {
+    const pet = props.pet
+    const scale = typeof props.scale === 'number' ? props.scale : 1
+    const mood = typeof props.mood === 'string' && ROW_OF[props.mood] !== undefined ? props.mood : 'idle'
+    const action = props.action === undefined ? null : props.action
+    const canvasRef = React.useRef(null)
+    const [atlas, setAtlas] = React.useState(null)
+    const [failed, setFailed] = React.useState(false)
+
+    React.useEffect(function () {
+      setAtlas(null)
+      setFailed(false)
+      let alive = true
+      inspectAtlas(pet.asset, pet.columns, pet.rows).then(function (result) {
+        if (alive) setAtlas(result)
+      }).catch(function () {
+        if (alive) setFailed(true)
+      })
+      return function () { alive = false }
+    }, [pet.asset, pet.columns, pet.rows])
+
+    React.useEffect(function () {
+      if (atlas === null) return undefined
+      const canvas = canvasRef.current
+      if (canvas === null) return undefined
+      const context = canvas.getContext('2d')
+      if (context === null) return undefined
+
+      let frame = 0
+      let last = 0
+      let raf = 0
+      const paint = function (now) {
+        const expired = action !== null && now >= action.until
+        const requested = expired ? ROW_OF.idle : action !== null ? action.row : ROW_OF[mood]
+        const row = atlas.frames[requested] > 0 ? requested : ROW_OF.idle
+        const count = atlas.frames[row] > 0 ? atlas.frames[row] : 1
+        if (last === 0 || now - last >= FRAME_MS) {
+          last = now
+          frame = (frame + 1) % count
+        }
+        context.clearRect(0, 0, atlas.cellW, atlas.cellH)
+        context.drawImage(
+          atlas.image,
+          frame * atlas.cellW,
+          row * atlas.cellH,
+          atlas.cellW,
+          atlas.cellH,
+          0,
+          0,
+          atlas.cellW,
+          atlas.cellH,
+        )
+        raf = requestAnimationFrame(paint)
+      }
+      raf = requestAnimationFrame(paint)
+      return function () { cancelAnimationFrame(raf) }
+    }, [atlas, mood, action])
+
+    // Packs ship at different atlas scales (192x208 and 384x416 are both
+    // common), so the sprite is normalized to a fixed on-screen height instead
+    // of multiplying the raw cell size by the user's zoom.
+    const height = Math.round(BASE_HEIGHT * scale)
+    const width = atlas === null ? Math.round(height * 0.92) : Math.round(atlas.cellW * height / atlas.cellH)
+
+    if (failed) {
+      return h('span', { className: 'dsh-pet-fallback', style: { width: width + 'px', height: height + 'px' } })
+    }
+
+    return h('canvas', {
+      ref: canvasRef,
+      className: 'dsh-pet-canvas',
+      width: atlas === null ? 1 : atlas.cellW,
+      height: atlas === null ? 1 : atlas.cellH,
+      style: { width: width + 'px', height: height + 'px' },
+    })
+  }
+
+  /** The floating layer: drag to move, click to wave, double-click to jump home. */
+  function PetLayer(props) {
+    const state = useStore(props.store)
+    const pet = state.pets.find(function (candidate) { return candidate.id === state.activeId })
+    const [position, setPosition] = React.useState(null)
+    const [dragging, setDragging] = React.useState(false)
+    const [direction, setDirection] = React.useState('running-right')
+    const [action, setAction] = React.useState(null)
+    const dragRef = React.useRef(null)
+    const previousMood = React.useRef(state.mood)
+
+    const play = function (name, duration) {
+      const row = ROW_OF[name]
+      if (row === undefined) return
+      setAction({ row: row, until: performance.now() + (duration === undefined ? 700 : duration) })
+    }
+
+    // A finished turn hops once, then settles: review -> idle is the handoff.
+    React.useEffect(function () {
+      const previous = previousMood.current
+      previousMood.current = state.mood
+      if (previous === 'review' && state.mood === 'idle') play('jumping', 900)
+    }, [state.mood])
+
+    // An idle pet glances left and right now and then.
+    React.useEffect(function () {
+      if (state.mood !== 'idle') return undefined
+      let timer = 0
+      const schedule = function () {
+        timer = window.setTimeout(function () {
+          play(Math.random() < 0.5 ? 'look-right' : 'look-left', 900)
+          schedule()
+        }, 9000 + Math.random() * 7000)
+      }
+      schedule()
+      return function () { window.clearTimeout(timer) }
+    }, [state.mood])
+
+    if (state.visible !== true || pet === undefined) return null
+
+    const onPointerDown = function (event) {
+      if (event.button !== 0) return
+      const element = event.currentTarget
+      const rect = element.getBoundingClientRect()
+      dragRef.current = {
+        pointerId: event.pointerId,
+        offsetX: event.clientX - rect.left,
+        offsetY: event.clientY - rect.top,
+        startX: event.clientX,
+        startY: event.clientY,
+        moved: false,
+      }
+      element.setPointerCapture(event.pointerId)
+      event.preventDefault()
+    }
+
+    const onPointerMove = function (event) {
+      const current = dragRef.current
+      if (current === null || current.pointerId !== event.pointerId) return
+      const dx = event.clientX - current.startX
+      const dy = event.clientY - current.startY
+      if (current.moved !== true && Math.abs(dx) + Math.abs(dy) < 4) return
+      current.moved = true
+      setDragging(true)
+      setDirection(dx >= 0 ? 'running-right' : 'running-left')
+      setPosition({
+        left: clamp(event.clientX - current.offsetX, 0, window.innerWidth - 40),
+        top: clamp(event.clientY - current.offsetY, 0, window.innerHeight - 40),
+      })
+    }
+
+    const onPointerUp = function (event) {
+      const current = dragRef.current
+      if (current === null || current.pointerId !== event.pointerId) return
+      dragRef.current = null
+      setDragging(false)
+      if (current.moved !== true) play('waving')
+    }
+
+    // Home is the bottom-right corner, flush with the window edge.
+    const style = position === null
+      ? { right: '12px', bottom: '0px' }
+      : { left: position.left + 'px', top: position.top + 'px' }
+
+    return h('div', {
+      className: 'dsh-pet-layer',
+      'data-dragging': dragging ? 'true' : 'false',
+      style: style,
+      onPointerDown: onPointerDown,
+      onPointerMove: onPointerMove,
+      onPointerUp: onPointerUp,
+      onPointerCancel: onPointerUp,
+      onDoubleClick: function () {
+        setPosition(null)
+        setDragging(false)
+        play('jumping', 900)
+      },
+      onContextMenu: function (event) {
+        event.preventDefault()
+        props.cycle(1)
+      },
+    }, h(PetSprite, {
+      pet: pet,
+      scale: state.scale,
+      mood: dragging ? direction : state.mood,
+      action: action,
+    }))
+  }
+
+  /* ---- account menu ----------------------------------------------------- */
+
+  /**
+   * The account menu is the host's own surface (ui-settings-account). Its rows
+   * come from a fixed item list this package cannot register into, so the row
+   * is inserted into the open menu instead: the menu is recognised by its
+   * sign-out row, and the row is cloned from the settings row beside it so it
+   * inherits the host's spacing, hover and focus treatment.
+   *
+   * The menu is rebuilt every time it opens, so one injection per open is the
+   * whole lifecycle: no teardown, no stale node.
+   */
+
+  /**
+   * Row labels. A row may be a real `menuitem`, a plain button or a link: the
+   * menu surfaces differ between the web app and the desktop shell, so the text
+   * is what identifies a row, not its role.
+   */
+  const SIGN_OUT = /^(退出登录|Sign out)/
+  const SETTINGS_ROW = /^(设置|Settings)/
+
+  /** Trim whitespace runs so a row's text reads as one line. */
+  function rowText(row) {
+    return (row.textContent ?? '').replace(/\s+/g, ' ').trim()
+  }
+
+  /** The open account menu: one holding a sign-out row, else a settings row. */
+  function findAccountMenu() {
+    const menus = document.querySelectorAll('[role="menu"]')
+    for (const menu of menus) {
+      for (const row of menu.querySelectorAll('[role="menuitem"], button, a')) {
+        if (SIGN_OUT.test(rowText(row))) return menu
+      }
+    }
+    for (const menu of menus) {
+      for (const row of menu.querySelectorAll('[role="menuitem"], button, a')) {
+        if (SETTINGS_ROW.test(rowText(row))) return menu
+      }
+    }
+    return null
+  }
+
+  /** The settings row, the anchor this package's row sits above. */
+  function findSettingsRow(menu) {
+    for (const row of menu.querySelectorAll('[role="menuitem"]')) {
+      if (SETTINGS_ROW.test(rowText(row))) return row
+    }
+    for (const row of menu.querySelectorAll('button, a')) {
+      if (SETTINGS_ROW.test(rowText(row))) return row
+    }
+    return null
+  }
+
+  /** Close the account menu by pressing its own trigger again. */
+  function closeAccountMenu() {
+    for (const button of document.querySelectorAll('button[aria-haspopup="menu"][aria-expanded="true"]')) {
+      if (button.querySelector('[data-avatar-status]') !== null) {
+        button.click()
+        return
+      }
+    }
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  }
+
+  /** The capsule glyph as a DOM node, for the row built outside React. */
+  function glyphNode() {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.setAttribute('viewBox', '0 0 16 16')
+    svg.setAttribute('width', '15')
+    svg.setAttribute('height', '15')
+    svg.setAttribute('aria-hidden', 'true')
+
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+    rect.setAttribute('x', '1.75')
+    rect.setAttribute('y', '4.25')
+    rect.setAttribute('width', '12.5')
+    rect.setAttribute('height', '7.5')
+    rect.setAttribute('rx', '3.75')
+    rect.setAttribute('fill', 'none')
+    rect.setAttribute('stroke', 'currentColor')
+    rect.setAttribute('stroke-width', '1.3')
+
+    const left = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
+    left.setAttribute('cx', '6')
+    left.setAttribute('cy', '8')
+    left.setAttribute('r', '1')
+    left.setAttribute('fill', 'currentColor')
+
+    const right = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
+    right.setAttribute('cx', '10')
+    right.setAttribute('cy', '8')
+    right.setAttribute('r', '1')
+    right.setAttribute('fill', 'currentColor')
+
+    svg.append(rect, left, right)
+    return svg
+  }
+
+  /** One menu row, cloned from the host's settings row so it inherits its look. */
+  function buildMenuRow(template, t) {
+    const row = template.cloneNode(false)
+    row.setAttribute('data-dsh-pet-menu', '')
+    row.setAttribute('role', 'menuitem')
+    row.setAttribute('tabindex', '-1')
+    row.classList.add('dsh-pet-menu-item')
+    while (row.firstChild !== null) row.removeChild(row.firstChild)
+
+    const icon = document.createElement('span')
+    icon.className = 'dsh-pet-menu-icon'
+    icon.appendChild(glyphNode())
+
+    const label = document.createElement('span')
+    label.className = 'dsh-pet-menu-label'
+    label.textContent = store.state.visible ? t('entry.hide') : t('entry.show')
+
+    const kbd = document.createElement('span')
+    kbd.className = 'dsh-pet-menu-kbd'
+    kbd.textContent = t('entry.shortcut')
+
+    row.append(icon, label, kbd)
+    row.addEventListener('click', function (event) {
+      event.preventDefault()
+      event.stopPropagation()
+      toggle()
+      closeAccountMenu()
+    })
+    return row
+  }
+
+  /** Keep one pet row in the open account menu; the menu is rebuilt per open. */
+  function ensureMenuRow(t) {
+    const menu = findAccountMenu()
+    if (menu === null) return
+
+    const existing = menu.querySelector('[data-dsh-pet-menu]')
+    if (existing !== null) {
+      const label = existing.querySelector('.dsh-pet-menu-label')
+      if (label !== null) label.textContent = store.state.visible ? t('entry.hide') : t('entry.show')
+      return
+    }
+
+    // The account menu does not always carry a settings row: some builds put
+    // Settings on the sidebar foot instead. Fall back to the menu's first row
+    // so the pet entry still lands inside the menu.
+    const settings = findSettingsRow(menu)
+    const anchor = settings !== null ? settings : menu.querySelector('[role="menuitem"], button, a')
+    if (anchor === null) return
+
+    const wrap = anchor.parentNode
+    if (wrap === null) return
+    const row = buildMenuRow(anchor, t)
+    // Sit directly above the anchor row. A menu row may or may not live inside
+    // its own wrapper, but the anchor's own parent always puts the new row on
+    // the same list level it occupies.
+    wrap.insertBefore(row, anchor)
+  }
+
+  /** The preference row that mirrors the switch, plus the live source hint. */
+  function PetSettingRow(props) {
+    const state = useStore(props.store)
+    const t = props.t
+    const current = state.pets.find(function (pet) { return pet.id === state.activeId }) ?? null
+    const hint = state.pets.length === 0
+      ? t('setting.hint.empty')
+      : state.source === 'codex'
+        ? t('setting.hint.codex')
+        : t('setting.hint.dsh')
+
+    const host = state.host
+    const debug = host === null || host === undefined
+      ? '宿主状态：尚未收到'
+      : host.error !== null && host.error !== undefined
+        ? '宿主状态：出错 ' + host.error
+        : '宿主：' + (host.running ? '运行中' : '空闲') + ' · ' + Math.round((performance.now() - host.at) / 1000) + ' 秒前'
+
+    return h('div', { className: 'dsh-pet-setting' }, [
+      h('div', { key: 'text', className: 'dsh-pet-setting-text' }, [
+        h('div', { key: 'title', className: 'dsh-pet-setting-title' }, t('setting.title')),
+        h('div', { key: 'hint', className: 'dsh-pet-setting-hint' }, hint),
+        h('div', { key: 'debug', className: 'dsh-pet-setting-debug' }, debug),
+      ]),
+      h('div', { key: 'actions', className: 'dsh-pet-setting-actions' }, [
+        h('div', { key: 'picker', className: 'dsh-pet-picker' }, [
+          h('button', {
+            key: 'prev',
+            type: 'button',
+            className: 'dsh-pet-cycle',
+            'aria-label': t('setting.prev'),
+            onClick: function () { props.cycle(-1) },
+          }, '‹'),
+          h('span', { key: 'name', className: 'dsh-pet-name' }, current === null ? '—' : current.name),
+          h('button', {
+            key: 'next',
+            type: 'button',
+            className: 'dsh-pet-cycle',
+            'aria-label': t('setting.next'),
+            onClick: function () { props.cycle(1) },
+          }, '›'),
+        ]),
+        h('input', {
+          key: 'zoom',
+          type: 'range',
+          className: 'dsh-pet-zoom',
+          min: '0.5',
+          max: '2',
+          step: '0.1',
+          value: state.scale,
+          'aria-label': t('setting.zoom'),
+          onChange: function (event) { props.setScale(event.target.value) },
+        }),
+        h('button', {
+          key: 'refresh',
+          type: 'button',
+          className: 'dsh-pet-setting-refresh',
+          onClick: props.refresh,
+        }, t('setting.refresh')),
+        h('input', {
+          key: 'switch',
+          type: 'checkbox',
+          className: 'dsh-pet-switch',
+          checked: state.visible,
+          onChange: props.toggle,
+          'aria-label': t('setting.title'),
+        }),
+      ]),
+    ])
+  }
+
+  /** Mount the sheet, the dictionaries, the two surfaces and the shortcut. */
+  function install(scope) {
+    rt.style('pet', STYLESHEET)
+
+    scope.effect(function () {
+      return scope.locale.register(NS, { zh: zh, en: en })
+    }, 'ui-pet: dictionaries')
+
+    const disposers = []
+    const add = function (dispose) {
+      if (typeof dispose === 'function') disposers.push(dispose)
+    }
+
+    const bind = scope.locale.bind(NS)
+    add(rt.observe(function () {
+      // The runtime drops a pass that throws, so one bad frame must not cost the
+      // menu row for the rest of the page's life.
+      try {
+        syncMood()
+        ensureMenuRow(bind)
+      } catch (error) {
+        rt.warn('pet menu row failed: ' + String((error && error.message) || error))
+      }
+    }))
+
+    // The live-turn markers are attributes, and the shared observer deliberately
+    // skips attribute mutations (React churns them). A private observer watches
+    // only those names, so a session switch costs one callback and no timer.
+    if (document.body !== null && typeof MutationObserver === 'function') {
+      const moodObserver = new MutationObserver(function () {
+        try {
+          syncMood()
+        } catch (error) {
+          rt.warn('pet mood sync failed: ' + String((error && error.message) || error))
+        }
+      })
+      moodObserver.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['data-chat-running', 'data-question-key', 'data-approval-key', 'data-plan-review-key', 'data-chat-node'],
+        childList: true,
+        subtree: true,
+      })
+      add(function () { moodObserver.disconnect() })
+    }
+
+    // Belt and braces: the observer covers attribute and node changes, and this
+    // slow sweep covers the case where the host's own state lags behind the DOM
+    // (a turn flips status without touching either). It costs two selectors a
+    // second while the page is visible, and sleeps entirely in a background tab.
+    const moodTimer = window.setInterval(function () {
+      if (document.hidden) return
+      try {
+        syncMood()
+      } catch (error) {
+        rt.warn('pet mood sync failed: ' + String((error && error.message) || error))
+      }
+    }, 900)
+    add(function () { window.clearInterval(moodTimer) })
+
+    // The host knows the agent's status the instant it flips; the DOM only
+    // learns about it a step later. A one-second fetch is the signal: simple,
+    // and immune to whatever buffering the shell's HTTP layer applies to a
+    // long-lived stream.
+    const pollState = function () {
+      fetch('/dsh-ui-copy/pet/state', { credentials: 'same-origin', cache: 'no-store' })
+        .then(function (response) {
+          if (!response.ok) throw new Error('HTTP ' + response.status)
+          return response.json()
+        })
+        .then(function (payload) {
+          if (payload === null || typeof payload !== 'object') throw new Error('bad payload')
+          hostRunning = payload.running === true
+          hostStateAt = performance.now()
+          store.set({ host: { running: hostRunning, at: hostStateAt, error: null } })
+          syncMood()
+        })
+        .catch(function (error) {
+          // Visible in Settings so the pet's silence can be diagnosed without
+          // guessing at the network layer.
+          store.set({ host: { running: false, at: hostStateAt, error: String((error && error.message) || error) } })
+        })
+    }
+    pollState()
+    const stateTimer = window.setInterval(function () {
+      if (document.hidden) return
+      pollState()
+    }, 1000)
+    add(function () { window.clearInterval(stateTimer) })
+
+    add(scope.slots.inject('shell.overlay', function () {
+      return scope.slots.register({
+        name: 'shell.overlay',
+        id: 'dsh-pet.layer',
+        order: 80,
+        locale: NS,
+        inject: function () { return { store: store, cycle: cycle } },
+      }, PetLayer)
+    }))
+
+    add(scope.slots.inject('settings.general.item', function () {
+      return scope.slots.register({
+        name: 'settings.general.item',
+        id: 'dsh-pet.setting',
+        order: 14,
+        locale: NS,
+        inject: function () { return { store: store, toggle: toggle, refresh: refresh, cycle: cycle, setScale: setScale } },
+      }, PetSettingRow)
+    }))
+
+    const onKeyDown = function (event) {
+      if (event.defaultPrevented) return
+      if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+      if (event.code !== 'Space' && event.key !== ' ') return
+      event.preventDefault()
+      toggle()
+    }
+    document.addEventListener('keydown', onKeyDown, true)
+    add(function () { document.removeEventListener('keydown', onKeyDown, true) })
+
+    scope.effect(function () {
+      return function () {
+        for (const dispose of disposers.splice(0)) {
+          try {
+            dispose()
+          } catch (error) {
+            rt.error(error)
+          }
+        }
+      }
+    }, 'ui-pet: registrations')
+  }
+
+  rt.ctx.inject(['slots', 'locale'], function (scope) { install(scope) })
+}
