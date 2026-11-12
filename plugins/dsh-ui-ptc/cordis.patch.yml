@@ -161,14 +161,14 @@
         isolate:
           workflowEngine: true
         config:
-          - id: agent-team
-            name: '@deepseek-ai/dsh-agent-team'
-            config:
-              maxTasks: 256
-          - id: tool-agent-team
-            name: '@deepseek-ai/dsh-tool-agent-team'
+          # agent-team / tool-agent-team stay in the host base layer, where they
+          # are already mounted once for every preset. Mounting either here
+          # registers agentTeams a second time inside the preset scope and the
+          # whole preset fails to load.
           - id: tool-subagent-control
             name: '@deepseek-ai/dsh-tool-subagent-control'
+            config:
+              interrupt: false
           - id: tool-subagent
             name: '@deepseek-ai/dsh-tool-subagent'
             config:
@@ -204,6 +204,10 @@
         name: '@deepseek-ai/dsh-tool-executor-ptc'
       - id: present
         name: '@deepseek-ai/dsh-tool-present'
+      # Upstream 0.2.2-rc.2 mounts tool-office in this preset; the wholesale
+      # override would otherwise hide the Office tools from PTC mode.
+      - id: tool-office
+        name: '@deepseek-ai/dsh-tool-office'
       - id: tool-plugin-manager
         name: '@deepseek-ai/dsh-plugin-manager/tools'
         disabled: true

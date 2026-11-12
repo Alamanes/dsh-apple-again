@@ -1,6 +1,6 @@
 {
   "name": "dsh-ui-ptc",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "description": "更好的 PTC 模式：摘掉 run_code 的代码卡片让子调用平铺显示，并内置 dsh-ops 的原生文件与 PTC 工具（vendored，代码不做改动）。独立插件。",
   "icon": "./icon.png",
