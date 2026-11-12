@@ -84,7 +84,7 @@
 }
 .dl-map svg { display: block; width: 100%; height: 258px; }
 .dl-map .dl-stone { cursor: pointer; transition: opacity 140ms ease; }
-.dl-map has(.dl-stone:hover) .dl-stone { opacity: 0.72; }
+.dl-map:has(.dl-stone:hover) .dl-stone { opacity: 0.72; }
 .dl-map .dl-stone:hover { opacity: 1; }
 .dl-map .dl-stone.is-active { stroke: var(--dl-ink); stroke-width: 1.5; stroke-opacity: 0.55; }
 .dl-map-meta { position: absolute; left: 16px; top: 14px; display: flex; gap: 10px; align-items: center; pointer-events: none; }
