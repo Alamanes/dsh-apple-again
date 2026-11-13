@@ -1,8 +1,8 @@
 {
   "name": "dsh-ui-ask",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
-  "description": "把 ask_user 提问弹窗换成 OpenAI 的视觉语言。（dsh-ui-suite 组件）",
+  "description": "把提问卡、计划审阅与工具审批卡统一成圆角卡片与描边按钮的外观。（dsh-ui-suite 组件）",
   "keywords": [
     "dsh",
     "dsh-plugin",

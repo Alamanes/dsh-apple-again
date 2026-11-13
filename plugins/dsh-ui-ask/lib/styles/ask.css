@@ -14,9 +14,11 @@
    exactly that reason.
 
    Scope
-     Every rule is rooted at one of three data attributes the components write
+     Every rule is rooted at one of four data attributes the components write
      on their own outermost element — [data-question-key], [data-plan-review-key],
-     [data-question-reply] — so nothing outside these surfaces is touched.
+     [data-question-reply] from @deepseek-ai/dsh-client-ui-user-questions, and
+     [data-approval-key] from @deepseek-ai/dsh-client-ui-approval — so nothing
+     outside these surfaces is touched.
 
    Accent
      The accent slot — the primary fill, its hover shade, the ink drawn on it and
@@ -58,8 +60,8 @@
    0. Scope and palette
    -------------------------------------------------------------------------- */
 
-:is([data-question-key], [data-plan-review-key], [data-question-reply]),
-:is([data-question-key], [data-plan-review-key], [data-question-reply]) * {
+:is([data-question-key], [data-plan-review-key], [data-question-reply], [data-approval-key]),
+:is([data-question-key], [data-plan-review-key], [data-question-reply], [data-approval-key]) * {
   /* Palette — semantic aliases over the suite token layer, so the card, its
      ink, its edges and its accent all resolve through the shipped theme
      instead of a hue this file used to publish. */
@@ -568,3 +570,91 @@ body[data-ds-dark-theme] [data-question-key] [class~='y21zpG_customRowActive'] {
      height, min-height, flex and z-index value, which the token layer does not
      own.
    -------------------------------------------------------------------------- */
+
+/* --------------------------------------------------------------------------
+   7. Approval card
+   --------------------------------------------------------------------------
+   @deepseek-ai/dsh-client-ui-approval draws the tool-escalation decision and
+   the plan gate through one card. Its classes are that package's CSS-module
+   tokens (`ImxglW_*` in 0.2.0-rc.2); the two hooks it writes itself —
+   [data-approval-key] on the frame and [data-approval-scroll] on the scroll
+   body — carry every rule that can avoid a hashed name, so an upgrade degrades
+   the finish rather than the layout.
+
+   The shipped card is an amber warning panel: an amber ring, an amber header
+   bar and an input-major fill. It reads `--dsw-alias-state-warn-*` directly,
+   so it stays amber under every theme the suite paints. Here it becomes the
+   same quiet card as every other surface: the surface-1 fill, one hairline
+   edge, the suite radius and the two soft shadows, with the header reduced to
+   an uncoloured eyebrow.
+   -------------------------------------------------------------------------- */
+
+[data-approval-key] {
+  padding: var(--dshui-space-2) calc(var(--dsh-composer-side-clearance) + 16px) var(--dshui-space-4) !important;
+}
+
+[data-approval-key] > div {
+  border: var(--dshui-border-width-strong) solid var(--oai-border) !important;
+  border-radius: var(--dshui-radius-2xl) !important;
+  background: var(--oai-surface) !important;
+  box-shadow: var(--dshui-shadow-1), var(--dshui-shadow-3) !important;
+  color: var(--oai-text) !important;
+}
+
+/* Header bar -> eyebrow: no fill, no rule, no amber. */
+[data-approval-key] > div > div:first-child {
+  padding: var(--dshui-space-5) var(--dshui-space-6) 0 !important;
+  background: transparent !important;
+  color: var(--oai-text-3) !important;
+  gap: var(--dshui-space-3) !important;
+  font-size: var(--dshui-text-size-xs) !important;
+  line-height: 16px !important;
+  font-weight: var(--dshui-weight-semibold) !important;
+  letter-spacing: var(--dshui-tracking-wide) !important;
+}
+
+/* The state dot takes the eyebrow ink instead of the warning palette. */
+[data-approval-key] > div > div:first-child > :first-child {
+  color: var(--oai-text-3) !important;
+}
+
+[data-approval-key] > div > div:first-child > :first-child svg,
+[data-approval-key] > div > div:first-child > :first-child svg * {
+  fill: currentColor !important;
+  stroke: currentColor !important;
+}
+
+[data-approval-key] [data-approval-scroll] {
+  padding: var(--dshui-space-3) var(--dshui-space-6) 0 !important;
+  gap: var(--dshui-space-2) !important;
+}
+
+[data-approval-key] [class~='ImxglW_headline'] {
+  font-size: var(--dshui-text-size-lg) !important;
+  line-height: 23px !important;
+  font-weight: var(--dshui-weight-semibold) !important;
+  letter-spacing: var(--dshui-tracking-tight) !important;
+  color: var(--oai-text) !important;
+}
+
+[data-approval-key] [class~='ImxglW_description'] {
+  font-size: var(--dshui-text-size-md) !important;
+  line-height: 20px !important;
+  color: var(--oai-text-2) !important;
+}
+
+[data-approval-key] [class~='ImxglW_command'] {
+  margin-top: var(--dshui-space-1) !important;
+  border-radius: var(--dshui-radius-md) !important;
+  background: var(--oai-surface-2) !important;
+  padding: var(--dshui-space-3) var(--dshui-space-5) !important;
+  color: var(--oai-text-3) !important;
+  font-size: var(--dshui-text-size-sm) !important;
+  line-height: 18px !important;
+}
+
+[data-approval-key] [class~='ImxglW_actionRow'] {
+  padding: var(--dshui-space-5) var(--dshui-space-6) var(--dshui-space-6) !important;
+  gap: var(--dshui-space-4) !important;
+}
+

@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Question surfaces",
-    "description": "Rounded-card styling for question prompts, plan review, and answered questions."
+    "title": "Question and approval surfaces",
+    "description": "Rounded-card styling for question prompts, plan review, answered questions, and tool approvals."
   }
 }
