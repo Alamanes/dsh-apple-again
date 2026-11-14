@@ -1,0 +1,9 @@
+# dsh-apple-purge bundle patch
+# 单包：宿主入口 src/index.js 自带注入段与 HTTP API；面板由 lib/client.js 提供。
+
+- insert:
+    - id: dsh-apple-purge
+      name: 'dsh-apple-purge'
+      inject: [systemPrompt, webServer]
+      config:
+        enabled: true

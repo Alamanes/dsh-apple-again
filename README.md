@@ -11,6 +11,7 @@
   <a href="./plugins/dsh-sidebar-memo/"><img src="./plugins/dsh-sidebar-memo/icon.png" width="76" alt="备忘录"></a>
   <a href="./plugins/dsh-user-memory/"><img src="./plugins/dsh-user-memory/icon.png" width="76" alt="用户记忆"></a>
   <a href="./plugins/dsh-plugin-forge/"><img src="./plugins/dsh-plugin-forge/icon.webp" width="76" alt="插件工坊"></a>
+  <a href="./plugins/dsh-apple-purge/"><img src="./plugins/dsh-apple-purge/icon.png" width="76" alt="限制"></a>
 </p>
 
 ## 组成
@@ -26,6 +27,7 @@
 | <img src="./plugins/dsh-sidebar-memo/icon.png" height="32" alt=""> | 应用层 | `dsh-sidebar-memo` | 0.1.0 | 右侧边栏的清单、目标、计划与日记 |
 | <img src="./plugins/dsh-user-memory/icon.png" height="32" alt=""> | 应用层 | `dsh-user-memory` | 0.1.0 | 单 Agent 长期记忆与侧栏记忆面板 |
 | <img src="./plugins/dsh-plugin-forge/icon.webp" height="32" alt=""> | 工具 | `dsh-plugin-forge` | 0.3.2 | 运行时 API 查询、插件管理与 Cordis 撰写技能 |
+| <img src="./plugins/dsh-apple-purge/icon.png" height="32" alt=""> | 工具 | `dsh-apple-purge` | 0.1.0 | 提示词洗白与持久化，侧栏「限制」控制台 |
 
 ## 依赖关系
 
@@ -35,6 +37,7 @@
 | `dsh-sidebar-memo` | 无清单级依赖 | 自带样式；侧栏区域与基础层统一 |
 | `dsh-user-memory` | 无清单级依赖 | 自带样式；侧栏区域与基础层统一 |
 | `dsh-plugin-forge` | 无 | 独立运行 |
+| `dsh-apple-purge` | 无清单级依赖 | 自带补丁引擎与宿主路由；界面沿用 `--dshui-*` 令牌 |
 | `dsh-ui-session-delete` | 无清单级依赖 | 自带样式与宿主半边 |
 | `dsh-ui-skill-explorer` | 无清单级依赖 | 自带样式与宿主半边 |
 
@@ -158,6 +161,7 @@ pnpm 按 commit 缓存 Git 依赖。仓库有新提交时执行 `pnpm update <�
 | `dsh-ui-effort-slider` | `dsh-codex-reasoning-effort-slider`（bakabaicai，作者 Nachoneko_miao） | MIT | Codex 风格的推理强度弹层、Fast 开关与滑轨 |
 | `dsh-ui-quota` | `dsh-commandcode-quota@0.3.2`（Jovan1666/commandcode-usage） | MIT | Command Code 额度报告的数据模型与取数路由 |
 | `dsh-plugin-forge` | `dsh-plugin-debugging@0.7.1`（zlZayn） | MIT | `modules/debugging` 的运行时自检工具组与技能 |
+| `dsh-apple-purge` | `dsh-purge-community@1.7.14`（kingcharleslzy-ai/dsh-purge） | MIT | 补丁引擎（锚点匹配、原子写入、备份回滚）与三组补丁条目：洗白 21 条、持久化 12 条、审批沙箱 17 条；注入正文、面板与更新监测为独立实现 |
 
 ### 外部数据与服务
 

@@ -249,3 +249,36 @@ FastCtx requires, and `vendor/fastctx/LICENSE-APACHE` for the Apache License
 
 FastCtx 的 Apache-2.0 归属声明与完整 NOTICE 原文随包保留在
 `plugins/dsh-ui-ptc/vendor/dsh-ops/NOTICE`，分发时不得删除。
+
+## 6. dsh-apple-purge
+
+- 上游：`dsh-purge-community@1.7.14`（github.com/kingcharleslzy-ai/dsh-purge）
+- 协议：MIT
+- 版权：Copyright (c) 2026 小杨 / YuJunZhiXue and the dsh-purge-community contributors
+- 使用范围：补丁引擎（锚点匹配、原子写入、备份回滚）与三组补丁条目定义（提示词洗白、持久化、审批与沙箱）；注入正文、侧栏面板、更新监测为本仓库的独立实现
+
+```text
+MIT License
+
+Copyright (c) 2026 小杨 / YuJunZhiXue and the dsh-purge-community contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+插件目录内另带 `LICENSE`，同时保留本仓库作者与上游两段版权行。
