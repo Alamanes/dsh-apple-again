@@ -78,19 +78,26 @@ export function createPanel({ memory, ctx, warn = () => {} }) {
     return { main: files[0].content.length, topics: files.slice(1).map(file => ({ topic: file.topic, size: file.content.length })) }
   }
 
+  // One summary runs at a time. A failed run is kept so the panel can show what went
+  // wrong, and it holds off the next automatic attempt for a while: without that, a
+  // failing model is re-asked on every poll, because each attempt can move the entries.
+  const RETRY_AFTER_MS = 60_000
   let summarizing = false
-  let failures = new Map()
+  let failure
   async function refreshSummary(hash, language) {
     if (summarizing) return
     summarizing = true
+    failure = undefined
     try {
       const text = await askOnce(ctx, { system: summarySystem(), text: summaryRequest({ lines: linesOf(), language }), warn })
       const value = { hash, text: text.slice(0, SUMMARY_MAX), at: Date.now() }
       cached = value
       await memory.writeText(summaryPath, JSON.stringify(value, null, 2))
-      failures.delete(hash)
     } catch (error) {
-      failures.set(hash, error?.message ?? String(error))
+      failure = { hash, message: error?.message ?? String(error), at: Date.now() }
+      try {
+        await memory.writeText(summaryPath.replace(/panel\.json$/, 'last-error.json'), JSON.stringify(failure, null, 2))
+      } catch { /* the panel still shows it */ }
       warn('dsh-user-memory: summary failed: ' + (error?.message ?? error))
     } finally {
       summarizing = false
@@ -104,7 +111,10 @@ export function createPanel({ memory, ctx, warn = () => {} }) {
     const hash = createHash('sha256').update(JSON.stringify(linesOf())).digest('hex')
     const current = saved()
     const stale = current?.hash !== hash
-    if (list.length > 0 && (regenerate || stale) && !summarizing) void refreshSummary(hash, '中文')
+    // An explicit regenerate is the user asking again, so it retries at once; a plain
+    // poll waits out the cooldown instead of hammering a model that just failed.
+    const cooling = failure !== undefined && Date.now() - failure.at < RETRY_AFTER_MS
+    if (list.length > 0 && (regenerate || (stale && !cooling)) && !summarizing) void refreshSummary(hash, '中文')
     return {
       entries: list,
       sizes: sizesNow,
@@ -112,7 +122,8 @@ export function createPanel({ memory, ctx, warn = () => {} }) {
       summary: list.length > 0 && current !== undefined ? { text: current.text, at: current.at } : null,
       fresh: list.length === 0 || current?.hash === hash,
       summarizing,
-      error: stale ? failures.get(hash) ?? null : null,
+      error: failure !== undefined ? failure.message : null,
+      failed: failure !== undefined,
     }
   }
 
