@@ -91,6 +91,9 @@ window.__ModuleLoader__.load({
 .dsum-reply-close { margin-left: auto; width: 22px; height: 22px; border: none; border-radius: 6px; background: transparent; color: var(--dshui-text-dimmed); font-size: 13px; line-height: 1; cursor: pointer; }
 .dsum-reply-close:hover { background: var(--dshui-surface-hover); color: var(--dshui-text-primary); }
 .dsum-reply-text { color: var(--dshui-text-secondary); font-size: 14px; line-height: 1.7; white-space: pre-wrap; }
+.dsum-stale { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 8px 10px; border: 1px solid var(--dshui-border-2); border-radius: 8px; background: var(--dshui-surface-hover); color: var(--dshui-text-tertiary); font-size: 12.5px; line-height: 1.5; }
+.dsum-stale-retry { margin-left: auto; flex: none; padding: 3px 8px; border: 1px solid var(--dshui-border-2); border-radius: 6px; background: transparent; color: var(--dshui-text-secondary); font: inherit; cursor: pointer; }
+.dsum-stale-retry:hover { background: var(--dshui-surface-hover); color: var(--dshui-text-primary); }
 .dsum-changes { margin: 8px 0 0; padding: 8px 0 0; border-top: 1px solid var(--dshui-border-2); list-style: none; color: var(--dshui-text-tertiary); font-size: 12.5px; line-height: 1.6; }`
 
     function injectStyle() {
@@ -198,6 +201,8 @@ window.__ModuleLoader__.load({
       useEffect(() => { fit() }, [draft, fit])
 
       const regenerate = () => {
+        if (state.summarizing) return
+        setState((current) => ({ ...current, summarizing: true, error: null, failed: false }))
         void call('/view?regenerate=1').then((value) => setState({ ...value, loading: false })).catch((error) => setNote(String(error?.message ?? error)))
       }
 
@@ -218,7 +223,7 @@ window.__ModuleLoader__.load({
           ),
           h('div', { className: 'dsum-divider' }),
           state.error !== null ? h('div', { className: 'dsum-error' }, state.error) : null,
-          state.summarizing
+          state.summarizing && state.summary === null
             ? h('div', { className: 'dsum-skel' },
                 h('div', { className: 'dsum-skel-row dsum-skel-title' }),
                 h('div', { className: 'dsum-skel-row', style: { width: '96%' } }),
@@ -236,6 +241,10 @@ window.__ModuleLoader__.load({
                       h('p', { className: 'dsum-body' }, section.body.join(' ')),
                     )))
               : null,
+          state.failed === true
+            ? h('div', { className: 'dsum-stale' }, '这次重写没成功，下面是上次写的。',
+                h('button', { className: 'dsum-stale-retry', onClick: regenerate }, '再试一次'))
+            : null,
           count === 0 && !state.loading
             ? h('div', { className: 'dsum-empty' }, '还没有记住任何东西。聊几句，回合结束后会自动整理。')
             : null,
