@@ -406,7 +406,7 @@ function dshuiComponent_restart(rt) {
    */
   const STYLESHEET = `
 .dsh-restart-row { display: flex; align-items: center; gap: 8px; width: 100%; }
-.dsh-restart-row-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; color: inherit; }
+.dsh-restart-row-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; color: var(--dsw-alias-label-tertiary, inherit); }
 .dsh-restart-row-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: inherit; font-size: inherit; font-weight: inherit; }
 .dsh-restart-row[aria-disabled="true"] { opacity: .6; }
 .dsh-restart-row-spin { animation: dsh-restart-spin .9s linear infinite; }
@@ -464,8 +464,8 @@ function dshuiComponent_restart(rt) {
     const ns = 'http://www.w3.org/2000/svg'
     const svg = document.createElementNS(ns, 'svg')
     svg.setAttribute('viewBox', '0 0 16 16')
-    svg.setAttribute('width', '15')
-    svg.setAttribute('height', '15')
+    svg.setAttribute('width', '16')
+    svg.setAttribute('height', '16')
     svg.setAttribute('fill', 'none')
     svg.setAttribute('stroke', 'currentColor')
     svg.setAttribute('stroke-width', '1.3')
