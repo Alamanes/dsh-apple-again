@@ -62,7 +62,11 @@ function dshuiComponent_effort_slider(rt) {
   const labels = { off: 'Off', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Xhigh', max: 'Ultra' };
   const order = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
   const styles = `
-      .dsh-codex-reasoning-effort-slider-root{position:relative;display:inline-flex;
+      .dsh-codex-reasoning-effort-slider-root{position:relative;display:inline-flex}
+      /* The popover portals out of the root, so every rule that used to rely on
+         the root as ancestor must name it too: type, palette and the button
+         reset would otherwise fall back to the browser defaults. */
+      .dsh-codex-reasoning-effort-slider-root,.dsh-codex-reasoning-effort-slider-popup{
         font-family:var(--dshui-font-family);font-size:var(--dshui-text-size-base);letter-spacing:var(--dshui-tracking-normal);
         /* The reference design's own palette, scoped to this component: the suite
            themes its chrome, and the escalation colours belong to the design being
@@ -72,8 +76,8 @@ function dshuiComponent_effort_slider(rt) {
         --dsces-ultra-soft:#a965dd;
         --dsces-ultra-deep:#653780;
         --dsces-fill:linear-gradient(95deg,#3065de 0%,#7757ee 32%,#b052f1 53%,#7d42e7 76%,#5631d0 100%)}
-      .dsh-codex-reasoning-effort-slider-root *{box-sizing:border-box;corner-shape:round}
-      .dsh-codex-reasoning-effort-slider-root button{font:inherit;cursor:pointer;border:0}
+      .dsh-codex-reasoning-effort-slider-root *,.dsh-codex-reasoning-effort-slider-popup *{box-sizing:border-box;corner-shape:round}
+      .dsh-codex-reasoning-effort-slider-root button,.dsh-codex-reasoning-effort-slider-popup button{font:inherit;cursor:pointer;border:0}
       .dsh-codex-reasoning-effort-slider-trigger{display:inline-flex;align-items:center;gap:5px;max-width:250px;height:28px;padding:0 7px;background:transparent;color:var(--dshui-text-caption);border-radius:var(--dshui-radius-sm);font-size:var(--dshui-text-size-md)!important}
       .dsh-codex-reasoning-effort-slider-trigger:hover{background:var(--dshui-surface-hover)}
       .dsh-codex-reasoning-effort-slider-trigger>.dsh-codex-reasoning-effort-slider-icon{transition:transform var(--dshui-duration-base) var(--dshui-ease-standard)}
@@ -83,8 +87,8 @@ function dshuiComponent_effort_slider(rt) {
       .dsh-codex-reasoning-effort-slider-trigger.ultra .dsh-codex-reasoning-effort-slider-trigger-effort{color:var(--dsces-ultra)}
       .dsh-codex-reasoning-effort-slider-trigger-bolt{width:14px;height:16px;flex:none;fill:currentColor;stroke:currentColor;stroke-width:.7;stroke-linejoin:round;color:var(--dshui-text-primary)}
       .dsh-codex-reasoning-effort-slider-compact{display:var(--dsh-composer-model-icon-display,none)}
-      .dsh-codex-reasoning-effort-slider-root button:disabled{cursor:default;opacity:.5}
-      .dsh-codex-reasoning-effort-slider-root button:focus-visible,.dsh-codex-reasoning-effort-slider-rail:focus-visible{outline:2px solid var(--dshui-border-focus);outline-offset:2px}
+      .dsh-codex-reasoning-effort-slider-root button:disabled,.dsh-codex-reasoning-effort-slider-popup button:disabled{cursor:default;opacity:.5}
+      .dsh-codex-reasoning-effort-slider-root button:focus-visible,.dsh-codex-reasoning-effort-slider-popup button:focus-visible,.dsh-codex-reasoning-effort-slider-rail:focus-visible{outline:2px solid var(--dshui-border-focus);outline-offset:2px}
       .dsh-codex-reasoning-effort-slider-popup{position:fixed;bottom:var(--dsh-codex-reasoning-effort-slider-bottom,40px);left:var(--dsh-codex-reasoning-effort-slider-left,12px);width:272px;max-width:calc(100vw - 24px);height:var(--dsh-codex-reasoning-effort-slider-height,104px);max-height:calc(100vh - var(--dsh-codex-reasoning-effort-slider-bottom,40px) - 12px);padding:0;background:var(--dshui-surface-menu);border-radius:var(--dshui-radius-md);box-shadow:var(--dshui-shadow-panel);backdrop-filter:blur(var(--dshui-backdrop-blur));z-index:1100;transform-origin:bottom left;transition:opacity var(--dshui-duration-base) var(--dshui-ease-standard),transform var(--dshui-duration-base) var(--dshui-ease-standard),height var(--dshui-duration-base) var(--dshui-ease-enter),visibility 0s}
       .dsh-codex-reasoning-effort-slider-popup.closed{opacity:0;pointer-events:none;visibility:hidden;transform:translateY(5px) scale(.98);transition-delay:0s,0s,0s,var(--dshui-duration-base)}
       .dsh-codex-reasoning-effort-slider-pane{position:absolute;left:0;right:0;bottom:0;opacity:1;transform:translateY(0);transition:opacity var(--dshui-duration-fast) var(--dshui-ease-standard),transform var(--dshui-duration-base) var(--dshui-ease-standard),visibility 0s}
