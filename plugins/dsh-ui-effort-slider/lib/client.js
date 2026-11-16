@@ -392,6 +392,11 @@ function dshuiComponent_effort_slider(rt) {
   }
   const h = React.createElement
   const { useState, useEffect, useLayoutEffect, useRef, useSyncExternalStore } = React
+  // The popover is position: fixed, and the docked composer is the containing
+  // block for its fixed descendants, so it must portal to the document body or
+  // it drifts with the composer's own coordinate space.
+  const reactDom = rt.require('react-dom')
+  const createPortal = reactDom === null || typeof reactDom.createPortal !== 'function' ? null : reactDom.createPortal
   const NS = 'dsh-codex-reasoning-effort-slider';
   const zh = {
     choose: '选择模型', effort: '思考等级', fast: '1.5倍速', usage: '用量更多', visual: '(无实际作用)',
@@ -433,7 +438,7 @@ function dshuiComponent_effort_slider(rt) {
       .dsh-codex-reasoning-effort-slider-compact{display:var(--dsh-composer-model-icon-display,none)}
       .dsh-codex-reasoning-effort-slider-root button:disabled{cursor:default;opacity:.5}
       .dsh-codex-reasoning-effort-slider-root button:focus-visible,.dsh-codex-reasoning-effort-slider-rail:focus-visible{outline:2px solid var(--dshui-border-focus);outline-offset:2px}
-      .dsh-codex-reasoning-effort-slider-popup{position:fixed;bottom:var(--dsh-codex-reasoning-effort-slider-bottom,40px);left:var(--dsh-codex-reasoning-effort-slider-left,12px);width:272px;max-width:calc(100vw - 24px);height:var(--dsh-codex-reasoning-effort-slider-height,104px);max-height:calc(100vh - var(--dsh-codex-reasoning-effort-slider-bottom,40px) - 12px);padding:0;background:var(--dshui-surface-menu);border-radius:var(--dshui-radius-md);box-shadow:var(--dshui-shadow-panel);backdrop-filter:blur(var(--dshui-backdrop-blur));z-index:120;transform-origin:bottom left;transition:opacity var(--dshui-duration-base) var(--dshui-ease-standard),transform var(--dshui-duration-base) var(--dshui-ease-standard),height var(--dshui-duration-base) var(--dshui-ease-enter),visibility 0s}
+      .dsh-codex-reasoning-effort-slider-popup{position:fixed;bottom:var(--dsh-codex-reasoning-effort-slider-bottom,40px);left:var(--dsh-codex-reasoning-effort-slider-left,12px);width:272px;max-width:calc(100vw - 24px);height:var(--dsh-codex-reasoning-effort-slider-height,104px);max-height:calc(100vh - var(--dsh-codex-reasoning-effort-slider-bottom,40px) - 12px);padding:0;background:var(--dshui-surface-menu);border-radius:var(--dshui-radius-md);box-shadow:var(--dshui-shadow-panel);backdrop-filter:blur(var(--dshui-backdrop-blur));z-index:1100;transform-origin:bottom left;transition:opacity var(--dshui-duration-base) var(--dshui-ease-standard),transform var(--dshui-duration-base) var(--dshui-ease-standard),height var(--dshui-duration-base) var(--dshui-ease-enter),visibility 0s}
       .dsh-codex-reasoning-effort-slider-popup.closed{opacity:0;pointer-events:none;visibility:hidden;transform:translateY(5px) scale(.98);transition-delay:0s,0s,0s,var(--dshui-duration-base)}
       .dsh-codex-reasoning-effort-slider-pane{position:absolute;left:0;right:0;bottom:0;opacity:1;transform:translateY(0);transition:opacity var(--dshui-duration-fast) var(--dshui-ease-standard),transform var(--dshui-duration-base) var(--dshui-ease-standard),visibility 0s}
       .dsh-codex-reasoning-effort-slider-pane.hidden{opacity:0;pointer-events:none;visibility:hidden;transform:translateY(5px);transition-delay:0s,0s,var(--dshui-duration-fast)}
@@ -618,7 +623,8 @@ function dshuiComponent_effort_slider(rt) {
       if (!open) return;
       let layoutFrame = 0;
       function outside(event) {
-        if (!rootRef.current?.contains(event.target)) close();
+        // The popup portals to the body, so it counts as inside too.
+        if (!rootRef.current?.contains(event.target) && !popupRef.current?.contains(event.target)) close();
       }
       function escape(event) {
         if (event.key !== 'Escape') return;
@@ -633,8 +639,10 @@ function dshuiComponent_effort_slider(rt) {
         if (!trigger || !popup) return;
         const width = Math.min(272, innerWidth - 24);
         const left = Math.max(12, Math.min((trigger.left + trigger.right - width) / 2, innerWidth - width - 12));
-        rootRef.current.style.setProperty('--dsh-codex-reasoning-effort-slider-left', `${left}px`);
-        rootRef.current.style.setProperty('--dsh-codex-reasoning-effort-slider-bottom', `${Math.max(12, innerHeight - trigger.top + 8)}px`);
+        // Written on the popup itself: once it portals to the body it no longer
+        // inherits custom properties set on the trigger's root.
+        popup.style.setProperty('--dsh-codex-reasoning-effort-slider-left', `${left}px`);
+        popup.style.setProperty('--dsh-codex-reasoning-effort-slider-bottom', `${Math.max(12, innerHeight - trigger.top + 8)}px`);
       }
       function resized() {
         cancelAnimationFrame(layoutFrame);
@@ -804,6 +812,44 @@ function dshuiComponent_effort_slider(rt) {
         }, h('span', { className: 'dsh-codex-reasoning-effort-slider-option-name', title: option.name }, option.name),
         selection?.provider === provider.id && selection?.model === option.id ? icon('check', true) : null)))),
       !state.groups.length ? h('div', { className: 'dsh-codex-reasoning-effort-slider-status' }, state.status === 'loading' ? t('loading') : t('empty')) : null);
+    // The trigger stays in the slot; the popover portals to the body so its
+    // fixed positioning uses the viewport, not the composer's box. Without
+    // react-dom in the boot graph it renders in place, as before.
+    const popup = h('section', { className: classes, ref: popupRef, role: 'dialog', 'aria-label': pane === 'models' ? t('model') : t('effort'),
+      'aria-hidden': !open, inert: !open ? '' : undefined, style: { '--dsh-codex-reasoning-effort-slider-height': `${pane === 'models' ? menuHeight : 104}px` } },
+      modelsView,
+      h('div', { className: `dsh-codex-reasoning-effort-slider-pane dsh-codex-reasoning-effort-slider-main${pane !== 'effort' ? ' hidden' : ''}`, inert: pane !== 'effort' ? '' : undefined },
+        h('button', { className: `dsh-codex-reasoning-effort-slider-tool dsh-codex-reasoning-effort-slider-fast${fast ? ' active' : ''}`, 'aria-label': t('fast'), 'aria-pressed': fast, onClick: () => setFast(!fast) },
+          h('svg', { className: 'dsh-codex-reasoning-effort-slider-bolt', viewBox: '0 0 24 24', 'aria-hidden': true },
+            h('path', { d: 'M14.4 2Q16 .2 15.8 2.5L15.1 8.5H20.5Q22 8.5 21 9.8L10.7 21.7Q9 23.4 9.2 21.2L10 14.2H4.2Q2.6 14.2 3.6 12.9L14.4 2Z' })),
+          h('span', { className: 'dsh-codex-reasoning-effort-slider-tooltip', role: 'tooltip' },
+            h('span', null, t('fast')), h('span', null, t('usage')), h('span', null, t('visual')))),
+        h('button', { className: 'dsh-codex-reasoning-effort-slider-model-link', onClick: () => setPane('models'), 'aria-label': t('model'), title: modelName },
+          h('span', { className: 'dsh-codex-reasoning-effort-slider-heading' }, currentLabel || t('choose'), icon('chevron', true)),
+          h('span', { className: 'dsh-codex-reasoning-effort-slider-model' }, modelName)),
+        h('div', { className: 'dsh-codex-reasoning-effort-slider-warning' }, h('span', null, t('warning'))),
+        h('button', { className: 'dsh-codex-reasoning-effort-slider-tool dsh-codex-reasoning-effort-slider-reset', disabled: busy || !model?.reasoning, 'aria-label': t('reset'),
+          onClick: () => { setFast(false); chooseEffort(model?.reasoning?.defaultEffort); }
+        }, icon('reset'), h('span', { className: 'dsh-codex-reasoning-effort-slider-tooltip', role: 'tooltip' }, t('reset'))),
+        efforts.length ? h('div', { className: `dsh-codex-reasoning-effort-slider-rail${dragging ? ' dragging' : ''}`, ref: railRef,
+          style: { '--dsh-codex-reasoning-effort-slider-pos': fraction }, role: 'slider', tabIndex: 0,
+          'aria-label': t('effort'), 'aria-valuemin': 0, 'aria-valuemax': efforts.length - 1,
+          'aria-valuenow': index, 'aria-valuetext': currentLabel, 'aria-disabled': busy || disabled,
+          onPointerDown: pointerDown, onPointerMove: pointerMove, onPointerUp: finish,
+          onPointerCancel: finish, onLostPointerCapture: finish,
+          onPointerLeave: () => setHovered(-1), onKeyDown: keyDown
+        }, h('div', { className: 'dsh-codex-reasoning-effort-slider-fill' }),
+        ...efforts.map((effort, i) => h('i', { key: effort.id,
+          className: `dsh-codex-reasoning-effort-slider-dot${i <= index ? ' passed' : ''}${i < index ? ' covered' : ''}${hovered === i ? ' hovered' : ''}`,
+          style: { '--dsh-codex-reasoning-effort-slider-tick': efforts.length > 1 ? i / (efforts.length - 1) : 0 } })),
+        h('div', { className: 'dsh-codex-reasoning-effort-slider-sparks' }, h('canvas', { ref: canvasRef, className: 'dsh-codex-reasoning-effort-slider-particles', width: 496, height: 52 })),
+        h('div', { className: 'dsh-codex-reasoning-effort-slider-knob' }), h('canvas', { ref: burstRef, className: 'dsh-codex-reasoning-effort-slider-burst', width: 144, height: 144 }))
+          : h('div', { className: 'dsh-codex-reasoning-effort-slider-noeffort' }, t('unsupported'))),
+      busy ? h('div', { className: 'dsh-codex-reasoning-effort-slider-sr', role: 'status' }, t('busy')) : null,
+      status ? h('div', { className: 'dsh-codex-reasoning-effort-slider-status dsh-codex-reasoning-effort-slider-error', role: 'alert' },
+        h('span', { className: 'dsh-codex-reasoning-effort-slider-error-text', title: status }, status),
+        h('button', { className: 'dsh-codex-reasoning-effort-slider-menu-back', 'aria-label': t('retry'), title: t('retry'),
+          onClick: () => { setError(''); load(); } }, icon('reset', true))) : null);
     return h('div', { className: 'dsh-codex-reasoning-effort-slider-root', ref: rootRef, 'data-dsh-codex-reasoning-effort-slider-session': true },
       h('button', { className: `dsh-codex-reasoning-effort-slider-trigger${savedEffort === 'max' ? ' ultra' : ''}`, ref: triggerRef, disabled,
         'aria-label': `${modelName} ${triggerLabel}`, 'aria-expanded': open, 'aria-haspopup': 'dialog', 'aria-busy': busy,
@@ -816,41 +862,7 @@ function dshuiComponent_effort_slider(rt) {
       h('span', { className: 'dsh-codex-reasoning-effort-slider-compact' }, icon('model')),
       h('span', { className: 'dsh-codex-reasoning-effort-slider-caption' }, modelName,
         triggerLabel ? h('span', { className: 'dsh-codex-reasoning-effort-slider-trigger-effort' }, ` ${triggerLabel}`) : null), icon('down', true)),
-      h('section', { className: classes, ref: popupRef, role: 'dialog', 'aria-label': pane === 'models' ? t('model') : t('effort'),
-        'aria-hidden': !open, inert: !open ? '' : undefined, style: { '--dsh-codex-reasoning-effort-slider-height': `${pane === 'models' ? menuHeight : 104}px` } },
-        modelsView,
-        h('div', { className: `dsh-codex-reasoning-effort-slider-pane dsh-codex-reasoning-effort-slider-main${pane !== 'effort' ? ' hidden' : ''}`, inert: pane !== 'effort' ? '' : undefined },
-          h('button', { className: `dsh-codex-reasoning-effort-slider-tool dsh-codex-reasoning-effort-slider-fast${fast ? ' active' : ''}`, 'aria-label': t('fast'), 'aria-pressed': fast, onClick: () => setFast(!fast) },
-            h('svg', { className: 'dsh-codex-reasoning-effort-slider-bolt', viewBox: '0 0 24 24', 'aria-hidden': true },
-              h('path', { d: 'M14.4 2Q16 .2 15.8 2.5L15.1 8.5H20.5Q22 8.5 21 9.8L10.7 21.7Q9 23.4 9.2 21.2L10 14.2H4.2Q2.6 14.2 3.6 12.9L14.4 2Z' })),
-            h('span', { className: 'dsh-codex-reasoning-effort-slider-tooltip', role: 'tooltip' },
-              h('span', null, t('fast')), h('span', null, t('usage')), h('span', null, t('visual')))),
-          h('button', { className: 'dsh-codex-reasoning-effort-slider-model-link', onClick: () => setPane('models'), 'aria-label': t('model'), title: modelName },
-            h('span', { className: 'dsh-codex-reasoning-effort-slider-heading' }, currentLabel || t('choose'), icon('chevron', true)),
-            h('span', { className: 'dsh-codex-reasoning-effort-slider-model' }, modelName)),
-          h('div', { className: 'dsh-codex-reasoning-effort-slider-warning' }, h('span', null, t('warning'))),
-          h('button', { className: 'dsh-codex-reasoning-effort-slider-tool dsh-codex-reasoning-effort-slider-reset', disabled: busy || !model?.reasoning, 'aria-label': t('reset'),
-            onClick: () => { setFast(false); chooseEffort(model?.reasoning?.defaultEffort); }
-          }, icon('reset'), h('span', { className: 'dsh-codex-reasoning-effort-slider-tooltip', role: 'tooltip' }, t('reset'))),
-          efforts.length ? h('div', { className: `dsh-codex-reasoning-effort-slider-rail${dragging ? ' dragging' : ''}`, ref: railRef,
-            style: { '--dsh-codex-reasoning-effort-slider-pos': fraction }, role: 'slider', tabIndex: 0,
-            'aria-label': t('effort'), 'aria-valuemin': 0, 'aria-valuemax': efforts.length - 1,
-            'aria-valuenow': index, 'aria-valuetext': currentLabel, 'aria-disabled': busy || disabled,
-            onPointerDown: pointerDown, onPointerMove: pointerMove, onPointerUp: finish,
-            onPointerCancel: finish, onLostPointerCapture: finish,
-            onPointerLeave: () => setHovered(-1), onKeyDown: keyDown
-          }, h('div', { className: 'dsh-codex-reasoning-effort-slider-fill' }),
-          ...efforts.map((effort, i) => h('i', { key: effort.id,
-            className: `dsh-codex-reasoning-effort-slider-dot${i <= index ? ' passed' : ''}${i < index ? ' covered' : ''}${hovered === i ? ' hovered' : ''}`,
-            style: { '--dsh-codex-reasoning-effort-slider-tick': efforts.length > 1 ? i / (efforts.length - 1) : 0 } })),
-          h('div', { className: 'dsh-codex-reasoning-effort-slider-sparks' }, h('canvas', { ref: canvasRef, className: 'dsh-codex-reasoning-effort-slider-particles', width: 496, height: 52 })),
-          h('div', { className: 'dsh-codex-reasoning-effort-slider-knob' }), h('canvas', { ref: burstRef, className: 'dsh-codex-reasoning-effort-slider-burst', width: 144, height: 144 }))
-            : h('div', { className: 'dsh-codex-reasoning-effort-slider-noeffort' }, t('unsupported'))),
-        busy ? h('div', { className: 'dsh-codex-reasoning-effort-slider-sr', role: 'status' }, t('busy')) : null,
-        status ? h('div', { className: 'dsh-codex-reasoning-effort-slider-status dsh-codex-reasoning-effort-slider-error', role: 'alert' },
-          h('span', { className: 'dsh-codex-reasoning-effort-slider-error-text', title: status }, status),
-          h('button', { className: 'dsh-codex-reasoning-effort-slider-menu-back', 'aria-label': t('retry'), title: t('retry'),
-            onClick: () => { setError(''); load(); } }, icon('reset', true))) : null));
+      createPortal === null ? popup : createPortal(popup, document.body));
   }
   /**
    * Take over the model picker's trigger.
